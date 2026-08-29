@@ -26,7 +26,61 @@ type GameRuntime = {
   reset: () => void;
 };
 
+type CameraMode = 'hood' | 'chase' | 'table';
+
+type VehicleContact = {
+  normal: THREE.Vector2;
+  depth: number;
+};
+
 const TRAFFIC_COLORS = [0x35b8c6, 0xf0b03d, 0xd84c4a, 0x6f7fd7, 0xe6e2d3, 0x6cab63];
+const VEHICLE_HALF_WIDTH = 0.7;
+const VEHICLE_HALF_LENGTH = 1.08;
+
+function vehicleAxes(object: THREE.Object3D) {
+  const heading = object.rotation.y;
+  return [
+    new THREE.Vector2(Math.cos(heading), -Math.sin(heading)),
+    new THREE.Vector2(Math.sin(heading), Math.cos(heading)),
+  ] as const;
+}
+
+function resolveVehicleOverlap(
+  a: THREE.Object3D,
+  b: THREE.Object3D,
+  aShare = 0.5,
+): VehicleContact | null {
+  const aAxes = vehicleAxes(a);
+  const bAxes = vehicleAxes(b);
+  const centerDelta = new THREE.Vector2(b.position.x - a.position.x, b.position.z - a.position.z);
+  let smallestDepth = Number.POSITIVE_INFINITY;
+  let collisionNormal = new THREE.Vector2();
+
+  for (const axis of [...aAxes, ...bAxes]) {
+    const aRadius =
+      VEHICLE_HALF_WIDTH * Math.abs(axis.dot(aAxes[0])) +
+      VEHICLE_HALF_LENGTH * Math.abs(axis.dot(aAxes[1]));
+    const bRadius =
+      VEHICLE_HALF_WIDTH * Math.abs(axis.dot(bAxes[0])) +
+      VEHICLE_HALF_LENGTH * Math.abs(axis.dot(bAxes[1]));
+    const signedDistance = centerDelta.dot(axis);
+    const depth = aRadius + bRadius - Math.abs(signedDistance);
+
+    if (depth <= 0) return null;
+    if (depth < smallestDepth) {
+      smallestDepth = depth;
+      collisionNormal = axis.clone().multiplyScalar(signedDistance < 0 ? -1 : 1);
+    }
+  }
+
+  const bShare = 1 - aShare;
+  a.position.x -= collisionNormal.x * smallestDepth * aShare;
+  a.position.z -= collisionNormal.y * smallestDepth * aShare;
+  b.position.x += collisionNormal.x * smallestDepth * bShare;
+  b.position.z += collisionNormal.y * smallestDepth * bShare;
+
+  return { normal: collisionNormal, depth: smallestDepth };
+}
 
 function money(value: number) {
   return new Intl.NumberFormat('en-US', {
@@ -182,13 +236,13 @@ export function GameStage() {
     right: false,
   });
   const runtimeRef = useRef<GameRuntime | null>(null);
-  const cameraModeRef = useRef<'chase' | 'table'>('chase');
+  const cameraModeRef = useRef<CameraMode>('hood');
   const [score, setScore] = useState(0);
   const [speed, setSpeed] = useState(0);
   const [chain, setChain] = useState(0);
   const [status, setStatus] = useState('APPROACH');
   const [hasDriven, setHasDriven] = useState(false);
-  const [cameraMode, setCameraMode] = useState<'chase' | 'table'>('chase');
+  const [cameraMode, setCameraMode] = useState<CameraMode>('hood');
 
   const setControl = useCallback((key: keyof Controls, active: boolean) => {
     controlsRef.current[key] = active;
@@ -204,7 +258,12 @@ export function GameStage() {
   }, []);
 
   const toggleCamera = useCallback(() => {
-    const nextMode = cameraModeRef.current === 'chase' ? 'table' : 'chase';
+    const nextMode: CameraMode =
+      cameraModeRef.current === 'hood'
+        ? 'chase'
+        : cameraModeRef.current === 'chase'
+          ? 'table'
+          : 'hood';
     cameraModeRef.current = nextMode;
     setCameraMode(nextMode);
   }, []);
@@ -383,9 +442,8 @@ export function GameStage() {
           car.spin *= Math.pow(0.97, dt * 60);
         }
 
-        const dx = car.mesh.position.x - player.position.x;
-        const dz = car.mesh.position.z - player.position.z;
-        if (!car.hit && dx * dx + dz * dz < 2.15 && Math.abs(playerSpeed) > 2.2) {
+        const contact = resolveVehicleOverlap(player, car.mesh, car.crashed ? 0.5 : 0.68);
+        if (contact && !car.hit && Math.abs(playerSpeed) > 2.2) {
           const impact = Math.abs(playerSpeed) + car.speed * 0.72;
           const impulse = forward.clone().multiplyScalar(Math.abs(playerSpeed) * 0.52);
           impulse.x += car.direction * car.speed * 0.38;
@@ -396,39 +454,60 @@ export function GameStage() {
 
       for (let i = 0; i < traffic.length; i += 1) {
         const a = traffic[i];
-        if (!a.crashed) continue;
-        for (let j = 0; j < traffic.length; j += 1) {
-          if (i === j) continue;
+        for (let j = i + 1; j < traffic.length; j += 1) {
           const b = traffic[j];
-          if (b.hit) continue;
-          const dx = a.mesh.position.x - b.mesh.position.x;
-          const dz = a.mesh.position.z - b.mesh.position.z;
-          if (dx * dx + dz * dz < 2.05) {
+          if (!a.crashed && !b.crashed) continue;
+
+          const contact = resolveVehicleOverlap(a.mesh, b.mesh);
+          if (!contact) continue;
+
+          if (a.crashed && !b.hit) {
             const impact = Math.max(a.velocity.length(), 2.5) + b.speed;
             const impulse = a.velocity.clone().multiplyScalar(0.48);
             impulse.x += b.direction * b.speed * 0.45;
             crashCar(b, impact, impulse);
+          } else if (b.crashed && !a.hit) {
+            const impact = Math.max(b.velocity.length(), 2.5) + a.speed;
+            const impulse = b.velocity.clone().multiplyScalar(0.48);
+            impulse.x += a.direction * a.speed * 0.45;
+            crashCar(a, impact, impulse);
+          } else if (a.crashed && b.crashed) {
+            const normal = new THREE.Vector3(contact.normal.x, 0, contact.normal.y);
+            const closingSpeed = a.velocity.clone().sub(b.velocity).dot(normal);
+            if (closingSpeed > 0) {
+              a.velocity.addScaledVector(normal, -closingSpeed * 0.52);
+              b.velocity.addScaledVector(normal, closingSpeed * 0.52);
+            }
           }
         }
       }
 
-      const desiredCamera =
-        cameraModeRef.current === 'chase'
-          ? player.position
-              .clone()
-              .add(new THREE.Vector3(-Math.sin(playerHeading) * 7.4, 5.3, Math.cos(playerHeading) * 7.4))
-          : new THREE.Vector3(13.5, 17.5, 17.5);
+      const cameraForward = new THREE.Vector3(Math.sin(playerHeading), 0, -Math.cos(playerHeading));
+      let desiredCamera: THREE.Vector3;
+      let cameraTarget: THREE.Vector3;
+
+      if (cameraModeRef.current === 'hood') {
+        desiredCamera = player.position.clone().addScaledVector(cameraForward, 0.04);
+        desiredCamera.y += 1.2;
+        cameraTarget = desiredCamera.clone().addScaledVector(cameraForward, 9);
+        cameraTarget.y -= 0.75;
+      } else if (cameraModeRef.current === 'chase') {
+        desiredCamera = player.position.clone().addScaledVector(cameraForward, -4.6);
+        desiredCamera.y += 2.15;
+        cameraTarget = player.position.clone().addScaledVector(cameraForward, 1.8);
+        cameraTarget.y += 0.35;
+      } else {
+        desiredCamera = new THREE.Vector3(13.5, 17.5, 17.5);
+        cameraTarget = new THREE.Vector3(0, 0.4, 0);
+      }
       if (shake > 0.005) {
-        desiredCamera.x += (Math.random() - 0.5) * shake;
-        desiredCamera.y += (Math.random() - 0.5) * shake * 0.5;
+        const shakeScale = cameraModeRef.current === 'hood' ? 0.45 : 1;
+        desiredCamera.x += (Math.random() - 0.5) * shake * shakeScale;
+        desiredCamera.y += (Math.random() - 0.5) * shake * 0.5 * shakeScale;
         shake *= Math.pow(0.88, dt * 60);
       }
       camera.position.lerp(desiredCamera, 1 - Math.pow(0.002, dt));
-      if (cameraModeRef.current === 'chase') {
-        camera.lookAt(player.position.x, player.position.y + 0.45, player.position.z - 3.4);
-      } else {
-        camera.lookAt(0, 0.4, 0);
-      }
+      camera.lookAt(cameraTarget);
       renderer.render(scene, camera);
 
       if (now - lastHudUpdate > 80) {
@@ -489,8 +568,9 @@ export function GameStage() {
         </div>
 
         <div className="hud-glass pointer-events-auto flex items-center gap-2 rounded-xl p-1.5">
-          <button type="button" onClick={toggleCamera} className={`grid h-9 w-9 place-items-center rounded-lg transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffad44] ${cameraMode === 'table' ? 'bg-[#5dcbd2]/15 text-[#72d9dd]' : 'text-white/65'}`} aria-label={`Switch to ${cameraMode === 'chase' ? 'tabletop' : 'chase'} camera`}>
+          <button type="button" onClick={toggleCamera} className={`flex h-9 items-center gap-2 rounded-lg px-2.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffad44] ${cameraMode === 'table' ? 'bg-[#5dcbd2]/15 text-[#72d9dd]' : 'text-white/65'}`} aria-label={`Current camera: ${cameraMode}. Switch camera`}>
             <Camera className="h-4 w-4" />
+            <span className="hidden sm:inline">{cameraMode}</span>
           </button>
           <button type="button" onClick={resetGame} className="flex h-9 items-center gap-2 rounded-lg bg-[#f1eee4] px-3 text-xs font-black uppercase tracking-[0.12em] text-[#111318] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffad44]">
             <RotateCcw className="h-3.5 w-3.5" />
