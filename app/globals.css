@@ -1,0 +1,123 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --radius-sm: calc(var(--radius) * 0.65);
+  --radius-md: calc(var(--radius) * 0.82);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.35);
+  --font-sans: var(--font-interface);
+  --font-heading: var(--font-display);
+  --font-mono: var(--font-data);
+}
+
+:root {
+  --background: oklch(0.13 0.012 258);
+  --foreground: oklch(0.96 0.012 91);
+  --card: oklch(0.18 0.018 255 / 84%);
+  --card-foreground: oklch(0.96 0.012 91);
+  --primary: oklch(0.78 0.18 65);
+  --primary-foreground: oklch(0.14 0.016 52);
+  --secondary: oklch(0.25 0.025 255);
+  --secondary-foreground: oklch(0.94 0.012 90);
+  --muted: oklch(0.22 0.018 255);
+  --muted-foreground: oklch(0.68 0.024 250);
+  --accent: oklch(0.74 0.14 190);
+  --accent-foreground: oklch(0.12 0.018 205);
+  --border: oklch(0.92 0.012 90 / 16%);
+  --input: oklch(0.92 0.012 90 / 18%);
+  --ring: oklch(0.78 0.18 65 / 60%);
+  --destructive: oklch(0.64 0.24 28);
+  --radius: 0.85rem;
+  --font-interface: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+  --font-data: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #07090d;
+  color: var(--foreground);
+  font-family: var(--font-interface);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+button {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--primary) 42%, transparent);
+}
+
+.hud-glass {
+  background: linear-gradient(145deg, rgb(22 27 36 / 86%), rgb(10 13 18 / 70%));
+  border: 1px solid rgb(255 255 255 / 12%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%), 0 18px 50px rgb(0 0 0 / 28%);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+
+.scanlines::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  opacity: 0.12;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0,
+    transparent 3px,
+    rgb(255 255 255 / 5%) 4px
+  );
+  mix-blend-mode: soft-light;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 0.65; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.status-pulse {
+  animation: status-pulse 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
