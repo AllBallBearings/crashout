@@ -465,6 +465,7 @@ export function GameStage() {
     const playerVelocity = new THREE.Vector3();
     const playerAngularVelocity = new THREE.Vector3();
     const cinematicTarget = player.position.clone();
+    const impactCameraOffset = new THREE.Vector3(0, 2.2, 4.5);
 
     const reset = () => {
       player.position.set(0, CAR_REST_Y, 17);
@@ -476,6 +477,7 @@ export function GameStage() {
       crashStartedAt = 0;
       playerVelocity.set(0, 0, 0);
       playerAngularVelocity.set(0, 0, 0);
+      impactCameraOffset.set(0, 2.2, 4.5);
       playerFrontWheels.forEach((wheel) => {
         wheel.rotation.y = 0;
       });
@@ -523,7 +525,7 @@ export function GameStage() {
     const handleResize = () => {
       const width = mount.clientWidth;
       const height = mount.clientHeight;
-      renderer.setSize(width, height, false);
+      renderer.setSize(width, height);
       camera.aspect = Math.max(width / Math.max(height, 1), 0.5);
       camera.updateProjectionMatrix();
     };
@@ -644,6 +646,8 @@ export function GameStage() {
             crashCar(car, impact, impulse);
 
             if (!playerCrashed) {
+              impactCameraOffset.copy(camera.position).sub(player.position);
+              cinematicTarget.copy(player.position);
               playerCrashed = true;
               playerVelocity.copy(forward).multiplyScalar(playerSpeed * 0.56);
               playerVelocity.x -= contact.normal.x * car.speed * 0.18;
@@ -724,7 +728,7 @@ export function GameStage() {
               (total, car) => total + (car.crashed ? car.velocity.length() + car.angularVelocity.length() * 0.35 : 0),
               0,
             );
-          if (elapsed > 3.5 && (wreckMotion < 1.5 || elapsed > 10)) {
+          if (elapsed > 7.5 && (wreckMotion < 1.2 || elapsed > 12)) {
             phaseRef.current = 'result';
             setPhase('result');
             setStatus('RUN COMPLETE');
@@ -758,7 +762,10 @@ export function GameStage() {
           crashCount += 1;
         }
         crashCenter.multiplyScalar(1 / crashCount);
-        cinematicTarget.lerp(crashCenter, 1 - Math.pow(0.018, dt));
+        const crashElapsed = (now - crashStartedAt) / 1000;
+        const closeFollowPosition = player.position.clone().add(impactCameraOffset);
+        const pullbackProgress = THREE.MathUtils.smoothstep(crashElapsed, 2.8, 6.8);
+        const easedPullback = pullbackProgress * pullbackProgress * (3 - 2 * pullbackProgress);
         const cameraModeValue = cameraModeRef.current;
         const crashOffset =
           cameraModeValue === 'near'
@@ -766,8 +773,12 @@ export function GameStage() {
             : cameraModeValue === 'chase'
               ? new THREE.Vector3(10.5, 11.5, 12.5)
               : new THREE.Vector3(0, 18.5, 5.5);
-        desiredCamera = cinematicTarget.clone().add(crashOffset);
-        camera.position.lerp(desiredCamera, 1 - Math.pow(0.045, dt));
+        const wideCameraPosition = crashCenter.clone().add(crashOffset);
+        desiredCamera = closeFollowPosition.lerp(wideCameraPosition, easedPullback);
+        const closeTarget = player.position.clone();
+        cinematicTarget.copy(closeTarget.lerp(crashCenter, easedPullback));
+        const cameraResponsiveness = crashElapsed < 2.8 ? 0.012 : 0.22;
+        camera.position.lerp(desiredCamera, 1 - Math.pow(cameraResponsiveness, dt));
         camera.lookAt(cinematicTarget.x, cinematicTarget.y + 0.35, cinematicTarget.z);
       }
       if (shake > 0.005) {
