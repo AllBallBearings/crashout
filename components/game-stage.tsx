@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Gauge, RotateCcw } from 'lucide-react';
 import * as THREE from 'three';
 
+import { Button } from '@/components/ui/button';
+
 type Controls = {
   accelerate: boolean;
   brake: boolean;
@@ -25,6 +27,8 @@ type TrafficCar = {
 type GameRuntime = {
   reset: () => void;
 };
+
+type GamePhase = 'ready' | 'approach' | 'crash' | 'aftermath' | 'result';
 
 type VehicleContact = {
   normal: THREE.Vector2;
@@ -239,23 +243,31 @@ export function GameStage() {
     right: false,
   });
   const runtimeRef = useRef<GameRuntime | null>(null);
+  const phaseRef = useRef<GamePhase>('ready');
   const [score, setScore] = useState(0);
   const [speed, setSpeed] = useState(0);
   const [chain, setChain] = useState(0);
-  const [status, setStatus] = useState('APPROACH');
-  const [hasDriven, setHasDriven] = useState(false);
+  const [status, setStatus] = useState('READY');
+  const [phase, setPhase] = useState<GamePhase>('ready');
 
   const setControl = useCallback((key: keyof Controls, active: boolean) => {
     controlsRef.current[key] = active;
-    if (active) setHasDriven(true);
+    if (key === 'accelerate' && active && phaseRef.current === 'ready') {
+      phaseRef.current = 'approach';
+      setPhase('approach');
+      setStatus('LAUNCH');
+    }
   }, []);
 
   const resetGame = useCallback(() => {
     runtimeRef.current?.reset();
+    controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
+    phaseRef.current = 'ready';
+    setPhase('ready');
     setScore(0);
     setSpeed(0);
     setChain(0);
-    setStatus('APPROACH');
+    setStatus('READY');
   }, []);
 
   useEffect(() => {
@@ -292,18 +304,22 @@ export function GameStage() {
     addRoad(scene);
 
     const player = makeCar(0xff6a2b, true);
-    player.position.set(0, 0.08, 16);
+    player.position.set(0, 0.08, 17);
     scene.add(player);
 
     const trafficSeed = [
-      { x: -15, lane: -2.15, direction: 1 as const, speed: 6.1 },
-      { x: -7, lane: -2.15, direction: 1 as const, speed: 5.4 },
-      { x: 4, lane: -2.15, direction: 1 as const, speed: 6.8 },
-      { x: 15, lane: 2.15, direction: -1 as const, speed: 6.2 },
-      { x: 8, lane: 2.15, direction: -1 as const, speed: 5.1 },
-      { x: -3, lane: 2.15, direction: -1 as const, speed: 7.0 },
-      { x: 21, lane: -2.15, direction: 1 as const, speed: 5.8 },
-      { x: -20, lane: 2.15, direction: -1 as const, speed: 5.6 },
+      { x: -22, lane: -2.15, direction: 1 as const, speed: 6.5 },
+      { x: -14, lane: -2.15, direction: 1 as const, speed: 5.8 },
+      { x: -6, lane: -2.15, direction: 1 as const, speed: 7.2 },
+      { x: 3, lane: -2.15, direction: 1 as const, speed: 6.1 },
+      { x: 12, lane: -2.15, direction: 1 as const, speed: 6.8 },
+      { x: 21, lane: -2.15, direction: 1 as const, speed: 5.6 },
+      { x: 22, lane: 2.15, direction: -1 as const, speed: 6.2 },
+      { x: 14, lane: 2.15, direction: -1 as const, speed: 7.0 },
+      { x: 6, lane: 2.15, direction: -1 as const, speed: 5.5 },
+      { x: -3, lane: 2.15, direction: -1 as const, speed: 6.7 },
+      { x: -12, lane: 2.15, direction: -1 as const, speed: 5.9 },
+      { x: -21, lane: 2.15, direction: -1 as const, speed: 6.4 },
     ];
 
     const traffic: TrafficCar[] = trafficSeed.map((seed, index) => {
@@ -331,12 +347,22 @@ export function GameStage() {
     let animationFrame = 0;
     let shake = 0;
     let lastHudUpdate = 0;
+    let playerCrashed = false;
+    let playerSpin = 0;
+    let crashStartedAt = 0;
+    const playerVelocity = new THREE.Vector3();
+    const cinematicTarget = player.position.clone();
 
     const reset = () => {
-      player.position.set(0, 0.08, 16);
+      player.position.set(0, 0.08, 17);
       player.rotation.set(0, 0, 0);
       playerSpeed = 0;
       playerHeading = 0;
+      playerCrashed = false;
+      playerSpin = 0;
+      crashStartedAt = 0;
+      playerVelocity.set(0, 0, 0);
+      cinematicTarget.copy(player.position);
       scoreValue = 0;
       chainValue = 0;
       traffic.forEach((car, index) => {
@@ -357,7 +383,7 @@ export function GameStage() {
       car.velocity.copy(impulse);
       car.spin = (car.direction * 0.9 + Math.sin(car.mesh.position.x) * 0.35) * impact * 0.07;
       chainValue += 1;
-      scoreValue += Math.round(impact * (920 + chainValue * 170));
+      scoreValue += Math.round(impact * (1100 + chainValue * 240));
       setScore(scoreValue);
       setChain(chainValue);
       setStatus(chainValue > 1 ? `CHAIN ×${chainValue}` : 'IMPACT');
@@ -384,6 +410,7 @@ export function GameStage() {
       if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') setControl('left', true);
       if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') setControl('right', true);
       if (event.key.toLowerCase() === 'r') resetGame();
+      if ((event.key === 'Enter' || event.key === ' ') && phaseRef.current === 'result') resetGame();
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') setControl('accelerate', false);
@@ -398,94 +425,177 @@ export function GameStage() {
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
       const controls = controlsRef.current;
+      const simulationActive = phaseRef.current !== 'result';
+      let forward = forwardFromHeading(playerHeading);
 
-      if (controls.accelerate) playerSpeed = Math.min(playerSpeed + 12.5 * dt, 19);
-      if (controls.brake) playerSpeed = Math.max(playerSpeed - 18 * dt, -6);
-      if (!controls.accelerate && !controls.brake) playerSpeed *= Math.pow(0.975, dt * 60);
-      if (Math.abs(playerSpeed) < 0.025) playerSpeed = 0;
+      if (simulationActive && !playerCrashed) {
+        if (controls.accelerate) playerSpeed = Math.min(playerSpeed + 14.5 * dt, 21);
+        if (controls.brake) playerSpeed = Math.max(playerSpeed - 22 * dt, 0);
+        if (!controls.accelerate && !controls.brake) playerSpeed *= Math.pow(0.982, dt * 60);
+        if (playerSpeed < 0.025) playerSpeed = 0;
 
-      const steerInput = (controls.left ? 1 : 0) - (controls.right ? 1 : 0);
-      if (steerInput !== 0 && Math.abs(playerSpeed) > 0.35) {
-        playerHeading += steerInput * Math.sign(playerSpeed) * Math.min(Math.abs(playerSpeed) / 7, 1.25) * dt;
+        const steerInput = (controls.left ? 1 : 0) - (controls.right ? 1 : 0);
+        if (steerInput !== 0 && playerSpeed > 0.35) {
+          playerHeading += steerInput * Math.min(playerSpeed / 8, 1.3) * dt;
+        }
+
+        forward = forwardFromHeading(playerHeading);
+        player.position.addScaledVector(forward, playerSpeed * dt);
+        player.position.x = THREE.MathUtils.clamp(player.position.x, -4.75, 4.75);
+        player.position.z = THREE.MathUtils.clamp(player.position.z, -21, 19);
+        player.rotation.y = playerHeading;
+      } else if (simulationActive && playerCrashed) {
+        player.position.addScaledVector(playerVelocity, dt);
+        playerVelocity.multiplyScalar(Math.pow(0.958, dt * 60));
+        player.rotation.y += playerSpin * dt;
+        playerSpin *= Math.pow(0.965, dt * 60);
+        playerHeading = player.rotation.y;
+        forward = forwardFromHeading(playerHeading);
       }
 
-      const forward = forwardFromHeading(playerHeading);
-      player.position.addScaledVector(forward, playerSpeed * dt);
-      player.position.x = THREE.MathUtils.clamp(player.position.x, -5.1, 5.1);
-      player.position.z = THREE.MathUtils.clamp(player.position.z, -21, 20);
-      player.rotation.y = playerHeading;
-
-      for (const car of traffic) {
-        if (!car.crashed) {
-          car.mesh.position.x += car.direction * car.speed * dt;
-          if (car.mesh.position.x > 23) {
-            car.mesh.position.x = -23;
-            car.hit = false;
-          } else if (car.mesh.position.x < -23) {
-            car.mesh.position.x = 23;
-            car.hit = false;
+      if (simulationActive) {
+        for (const car of traffic) {
+          if (!car.crashed) {
+            car.mesh.position.x += car.direction * car.speed * dt;
+            if (car.mesh.position.x > 24) {
+              car.mesh.position.x = -24;
+              car.hit = false;
+            } else if (car.mesh.position.x < -24) {
+              car.mesh.position.x = 24;
+              car.hit = false;
+            }
+          } else {
+            car.mesh.position.addScaledVector(car.velocity, dt);
+            car.velocity.multiplyScalar(Math.pow(0.962, dt * 60));
+            car.mesh.rotation.y += car.spin * dt;
+            car.spin *= Math.pow(0.97, dt * 60);
           }
-        } else {
-          car.mesh.position.addScaledVector(car.velocity, dt);
-          car.velocity.multiplyScalar(Math.pow(0.965, dt * 60));
-          car.mesh.rotation.y += car.spin * dt;
-          car.spin *= Math.pow(0.97, dt * 60);
-        }
 
-        const contact = resolveVehicleOverlap(player, car.mesh, car.crashed ? 0.5 : 0.68);
-        if (contact && !car.hit && Math.abs(playerSpeed) > 2.2) {
-          const impact = Math.abs(playerSpeed) + car.speed * 0.72;
-          const impulse = forward.clone().multiplyScalar(Math.abs(playerSpeed) * 0.52);
-          impulse.x += car.direction * car.speed * 0.38;
-          crashCar(car, impact, impulse);
-          playerSpeed *= 0.47;
-        }
-      }
+          const contact = resolveVehicleOverlap(player, car.mesh, car.crashed ? 0.5 : 0.68);
+          const playerImpactSpeed = playerCrashed ? playerVelocity.length() : playerSpeed;
+          if (contact && !car.hit && playerImpactSpeed > 2.1) {
+            const impact = playerImpactSpeed + car.speed * 0.72;
+            const impulse = playerCrashed
+              ? playerVelocity.clone().multiplyScalar(0.64)
+              : forward.clone().multiplyScalar(playerSpeed * 0.62);
+            impulse.x += car.direction * car.speed * 0.38;
+            crashCar(car, impact, impulse);
 
-      for (let i = 0; i < traffic.length; i += 1) {
-        const a = traffic[i];
-        for (let j = i + 1; j < traffic.length; j += 1) {
-          const b = traffic[j];
-          if (!a.crashed && !b.crashed) continue;
-
-          const contact = resolveVehicleOverlap(a.mesh, b.mesh);
-          if (!contact) continue;
-
-          if (a.crashed && !b.hit) {
-            const impact = Math.max(a.velocity.length(), 2.5) + b.speed;
-            const impulse = a.velocity.clone().multiplyScalar(0.48);
-            impulse.x += b.direction * b.speed * 0.45;
-            crashCar(b, impact, impulse);
-          } else if (b.crashed && !a.hit) {
-            const impact = Math.max(b.velocity.length(), 2.5) + a.speed;
-            const impulse = b.velocity.clone().multiplyScalar(0.48);
-            impulse.x += a.direction * a.speed * 0.45;
-            crashCar(a, impact, impulse);
-          } else if (a.crashed && b.crashed) {
+            if (!playerCrashed) {
+              playerCrashed = true;
+              playerVelocity.copy(forward).multiplyScalar(playerSpeed * 0.56);
+              playerVelocity.x -= contact.normal.x * car.speed * 0.18;
+              playerVelocity.z -= contact.normal.y * car.speed * 0.18;
+              playerSpin = (contact.normal.x * 0.8 + car.direction * 0.35) * Math.min(impact * 0.06, 1.25);
+              playerSpeed = 0;
+              crashStartedAt = now;
+              phaseRef.current = 'crash';
+              setPhase('crash');
+              setStatus('INITIAL IMPACT');
+              controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
+            } else {
+              playerVelocity.multiplyScalar(0.72);
+            }
+          } else if (contact && playerCrashed && car.crashed) {
             const normal = new THREE.Vector3(contact.normal.x, 0, contact.normal.y);
-            const closingSpeed = a.velocity.clone().sub(b.velocity).dot(normal);
+            const closingSpeed = playerVelocity.clone().sub(car.velocity).dot(normal);
             if (closingSpeed > 0) {
-              a.velocity.addScaledVector(normal, -closingSpeed * 0.52);
-              b.velocity.addScaledVector(normal, closingSpeed * 0.52);
+              playerVelocity.addScaledVector(normal, -closingSpeed * 0.58);
+              car.velocity.addScaledVector(normal, closingSpeed * 0.58);
             }
           }
         }
+
+        for (let i = 0; i < traffic.length; i += 1) {
+          const a = traffic[i];
+          for (let j = i + 1; j < traffic.length; j += 1) {
+            const b = traffic[j];
+            const contact = resolveVehicleOverlap(a.mesh, b.mesh);
+            if (!contact) continue;
+            if (!a.crashed && !b.crashed) continue;
+
+            if (a.crashed && !b.hit) {
+              const impact = Math.max(a.velocity.length(), 2.5) + b.speed;
+              const impulse = a.velocity.clone().multiplyScalar(0.58);
+              impulse.x += b.direction * b.speed * 0.42;
+              crashCar(b, impact, impulse);
+            } else if (b.crashed && !a.hit) {
+              const impact = Math.max(b.velocity.length(), 2.5) + a.speed;
+              const impulse = b.velocity.clone().multiplyScalar(0.58);
+              impulse.x += a.direction * a.speed * 0.42;
+              crashCar(a, impact, impulse);
+            } else if (a.crashed && b.crashed) {
+              const normal = new THREE.Vector3(contact.normal.x, 0, contact.normal.y);
+              const closingSpeed = a.velocity.clone().sub(b.velocity).dot(normal);
+              if (closingSpeed > 0) {
+                a.velocity.addScaledVector(normal, -closingSpeed * 0.52);
+                b.velocity.addScaledVector(normal, closingSpeed * 0.52);
+              }
+            }
+          }
+        }
+
+        if (playerCrashed) {
+          const elapsed = (now - crashStartedAt) / 1000;
+          if (phaseRef.current === 'crash' && elapsed > 1.1) {
+            phaseRef.current = 'aftermath';
+            setPhase('aftermath');
+            setStatus('PILEUP IN MOTION');
+          }
+
+          const wreckMotion =
+            playerVelocity.length() +
+            traffic.reduce((total, car) => total + (car.crashed ? car.velocity.length() : 0), 0);
+          if (elapsed > 3.5 && (wreckMotion < 1.5 || elapsed > 10)) {
+            phaseRef.current = 'result';
+            setPhase('result');
+            setStatus('RUN COMPLETE');
+            setSpeed(0);
+            controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
+          }
+        } else if (phaseRef.current === 'approach' && player.position.z < -12) {
+          phaseRef.current = 'result';
+          setPhase('result');
+          setStatus('MISSED THE JUNCTION');
+          setSpeed(0);
+          controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
+        }
       }
 
-      const desiredCamera = player.position.clone().addScaledVector(forward, -6.2);
-      desiredCamera.y += 3.2;
+      let desiredCamera: THREE.Vector3;
+      if (!playerCrashed) {
+        desiredCamera = player.position.clone().addScaledVector(forward, -6.2);
+        desiredCamera.y += 3.2;
+        camera.position.copy(desiredCamera);
+        camera.lookAt(player.position.x, player.position.y + 0.52, player.position.z);
+      } else {
+        const crashCenter = player.position.clone();
+        let crashCount = 1;
+        for (const car of traffic) {
+          if (!car.crashed) continue;
+          crashCenter.add(car.mesh.position);
+          crashCount += 1;
+        }
+        crashCenter.multiplyScalar(1 / crashCount);
+        cinematicTarget.lerp(crashCenter, 1 - Math.pow(0.018, dt));
+        desiredCamera = cinematicTarget.clone().add(new THREE.Vector3(10.5, 11.5, 12.5));
+        camera.position.lerp(desiredCamera, 1 - Math.pow(0.045, dt));
+        camera.lookAt(cinematicTarget.x, cinematicTarget.y + 0.35, cinematicTarget.z);
+      }
       if (shake > 0.005) {
-        desiredCamera.x += (Math.random() - 0.5) * shake * 0.55;
-        desiredCamera.y += (Math.random() - 0.5) * shake * 0.28;
+        camera.position.x += (Math.random() - 0.5) * shake * 0.55;
+        camera.position.y += (Math.random() - 0.5) * shake * 0.28;
         shake *= Math.pow(0.88, dt * 60);
       }
-      camera.position.copy(desiredCamera);
-      camera.lookAt(player.position.x, player.position.y + 0.52, player.position.z);
       renderer.render(scene, camera);
 
       if (now - lastHudUpdate > 80) {
-        setSpeed(Math.round(Math.abs(playerSpeed) * 6.2));
-        if (chainValue === 0) setStatus(player.position.z < 7 ? 'COMMIT' : 'APPROACH');
+        const displayedSpeed = phaseRef.current === 'result' ? 0 : playerCrashed ? playerVelocity.length() : playerSpeed;
+        setSpeed(Math.round(displayedSpeed * 6.2));
+        if (phaseRef.current === 'ready') setStatus('READY');
+        if (phaseRef.current === 'approach' && chainValue === 0) {
+          setStatus(player.position.z < 7 ? 'COMMIT' : 'BUILD SPEED');
+        }
         lastHudUpdate = now;
       }
       animationFrame = requestAnimationFrame(clock);
@@ -510,8 +620,11 @@ export function GameStage() {
     };
   }, [resetGame, setControl]);
 
+  const drivingLocked = phase === 'crash' || phase === 'aftermath' || phase === 'result';
+
   const pointerHandlers = (control: keyof Controls) => ({
     onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (drivingLocked) return;
       event.currentTarget.setPointerCapture(event.pointerId);
       setControl(control, true);
     },
@@ -550,7 +663,9 @@ export function GameStage() {
 
       <section className="pointer-events-none absolute left-1/2 top-[82px] z-10 -translate-x-1/2 text-center sm:top-6">
         <div className="hud-glass min-w-[190px] rounded-xl px-5 py-3 sm:min-w-[240px]">
-          <p className="font-mono text-[9px] uppercase tracking-[0.26em] text-[#72d9dd]">Live damage</p>
+          <p className="font-mono text-[9px] uppercase tracking-[0.26em] text-[#72d9dd]">
+            {phase === 'result' ? 'Final damage' : 'Live damage'}
+          </p>
           <p className="mt-0.5 font-mono text-2xl font-black tabular-nums tracking-[-0.06em] sm:text-3xl">{money(score)}</p>
           <div className="mt-1 flex items-center justify-center gap-2 font-mono text-[9px] uppercase tracking-[0.18em] text-white/50">
             <span className="status-pulse h-1.5 w-1.5 rounded-full bg-[#ff9a3e]" />
@@ -560,25 +675,50 @@ export function GameStage() {
         </div>
       </section>
 
-      {!hasDriven && (
+      {phase === 'ready' && (
         <div className="pointer-events-none absolute left-1/2 top-[38%] z-10 w-[min(420px,calc(100%-32px))] -translate-x-1/2 text-center">
           <p className="font-[var(--font-display)] text-[clamp(24px,4vw,48px)] font-black uppercase italic leading-[0.9] tracking-[-0.03em] text-white drop-shadow-[0_4px_24px_rgb(0_0_0/80%)]">
-            Thread the gap.<br /><span className="text-[#ff8a35]">Start the wreck.</span>
+            Build speed.<br /><span className="text-[#ff8a35]">Pick your impact.</span>
           </p>
           <p className="mx-auto mt-3 max-w-xs text-xs leading-relaxed text-white/60 sm:text-sm">
-            Use WASD or the controls below. Hit cross traffic at speed and turn one impact into a chain reaction.
+            Hold W to launch. Steer with A and D, hit cross traffic hard, then watch the pileup unfold.
           </p>
         </div>
       )}
 
-      <aside className="hud-glass pointer-events-none absolute bottom-4 left-1/2 z-20 flex w-[calc(100%-32px)] max-w-3xl -translate-x-1/2 items-end justify-between rounded-2xl px-3 py-3 sm:bottom-6 sm:px-4">
+      {(phase === 'crash' || phase === 'aftermath') && (
+        <div className="pointer-events-none absolute left-1/2 top-[35%] z-10 -translate-x-1/2 text-center">
+          <p className="font-[var(--font-display)] text-[clamp(26px,5vw,56px)] font-black uppercase italic leading-none tracking-[-0.04em] text-[#ff8a35] drop-shadow-[0_4px_28px_rgb(0_0_0/90%)]">
+            {phase === 'crash' ? 'Impact!' : `Chain ×${Math.max(chain, 1)}`}
+          </p>
+          <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.24em] text-white/55">Cinematic crash camera</p>
+        </div>
+      )}
+
+      {phase === 'result' && (
+        <section className="hud-glass absolute left-1/2 top-1/2 z-30 w-[min(420px,calc(100%-32px))] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-[#ff9a3e]/30 px-7 py-7 text-center shadow-[0_24px_90px_rgb(0_0_0/70%)] sm:px-10 sm:py-9">
+          <p className="font-mono text-[9px] uppercase tracking-[0.3em] text-[#72d9dd]">Junction 01 · Complete</p>
+          <h2 className="mt-3 font-[var(--font-display)] text-3xl font-black uppercase italic tracking-[-0.04em] text-white sm:text-5xl">Crash total</h2>
+          <p className="mt-2 font-mono text-4xl font-black tabular-nums tracking-[-0.07em] text-[#ff9a3e] sm:text-5xl">{money(score)}</p>
+          <div className="mx-auto mt-5 flex max-w-xs items-center justify-center gap-6 border-y border-white/10 py-3 font-mono text-[10px] uppercase tracking-[0.16em] text-white/50">
+            <span><strong className="mr-1 text-base text-white">{chain}</strong> vehicles</span>
+            <span><strong className="mr-1 text-base text-white">×{chain}</strong> chain</span>
+          </div>
+          <Button type="button" size="lg" onClick={resetGame} className="mt-6 h-11 w-full bg-[#f4772c] font-[var(--font-display)] text-sm font-black uppercase tracking-[0.14em] text-[#17130f] hover:bg-[#ff994a]">
+            Run it again
+          </Button>
+          <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.2em] text-white/35">Press R, Enter, or Space</p>
+        </section>
+      )}
+
+      {phase !== 'result' && <aside className={`hud-glass pointer-events-none absolute bottom-4 left-1/2 z-20 flex w-[calc(100%-32px)] max-w-3xl -translate-x-1/2 items-end justify-between rounded-2xl px-3 py-3 transition-opacity sm:bottom-6 sm:px-4 ${drivingLocked ? 'opacity-55' : ''}`}>
         <div className="pointer-events-auto grid grid-cols-3 gap-2">
           <span />
-          <button type="button" aria-label="Accelerate" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 sm:h-14 sm:w-16" {...pointerHandlers('accelerate')}>▲</button>
+          <button type="button" disabled={drivingLocked} aria-label="Accelerate" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('accelerate')}>▲</button>
           <span />
-          <button type="button" aria-label="Steer left" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 sm:h-14 sm:w-16" {...pointerHandlers('left')}>◀</button>
-          <button type="button" aria-label="Brake and reverse" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 sm:h-14 sm:w-16" {...pointerHandlers('brake')}>▼</button>
-          <button type="button" aria-label="Steer right" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 sm:h-14 sm:w-16" {...pointerHandlers('right')}>▶</button>
+          <button type="button" disabled={drivingLocked} aria-label="Steer left" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('left')}>◀</button>
+          <button type="button" disabled={drivingLocked} aria-label="Brake" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('brake')}>▼</button>
+          <button type="button" disabled={drivingLocked} aria-label="Steer right" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('right')}>▶</button>
         </div>
 
         <div className="hidden flex-col items-center gap-1 text-center sm:flex">
@@ -597,9 +737,9 @@ export function GameStage() {
               {String(speed).padStart(3, '0')}<span className="ml-1 text-[9px] tracking-normal text-white/40">MPH</span>
             </p>
           </div>
-          <button type="button" aria-label="Accelerate" className="relative grid h-20 w-20 select-none place-items-center overflow-hidden rounded-full border-2 border-[#ff9d3e]/60 bg-[#f4772c]/88 font-[var(--font-display)] text-sm font-black uppercase tracking-[0.09em] text-[#17130f] shadow-[0_0_34px_rgb(244_119_44/30%),inset_0_2px_0_rgb(255_255_255/28%)] transition active:scale-95 active:bg-[#ff9a43] sm:h-24 sm:w-24" {...pointerHandlers('accelerate')}>Go</button>
+          <button type="button" disabled={drivingLocked} aria-label="Accelerate" className="relative grid h-20 w-20 select-none place-items-center overflow-hidden rounded-full border-2 border-[#ff9d3e]/60 bg-[#f4772c]/88 font-[var(--font-display)] text-sm font-black uppercase tracking-[0.09em] text-[#17130f] shadow-[0_0_34px_rgb(244_119_44/30%),inset_0_2px_0_rgb(255_255_255/28%)] transition active:scale-95 active:bg-[#ff9a43] disabled:opacity-40 sm:h-24 sm:w-24" {...pointerHandlers('accelerate')}>{phase === 'ready' ? 'Launch' : 'Go'}</button>
         </div>
-      </aside>
+      </aside>}
     </main>
   );
 }
