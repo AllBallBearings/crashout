@@ -17,11 +17,12 @@ type TrafficCar = {
   mesh: THREE.Group;
   lane: number;
   direction: 1 | -1;
+  baseSpeed: number;
   speed: number;
   crashed: boolean;
   hit: boolean;
   velocity: THREE.Vector3;
-  spin: number;
+  angularVelocity: THREE.Vector3;
 };
 
 type GameRuntime = {
@@ -31,13 +32,17 @@ type GameRuntime = {
 type GamePhase = 'ready' | 'approach' | 'crash' | 'aftermath' | 'result';
 
 type VehicleContact = {
-  normal: THREE.Vector2;
+  normal: THREE.Vector3;
   depth: number;
 };
 
 const TRAFFIC_COLORS = [0x35b8c6, 0xf0b03d, 0xd84c4a, 0x6f7fd7, 0xe6e2d3, 0x6cab63];
 const VEHICLE_HALF_WIDTH = 0.7;
+const VEHICLE_HALF_HEIGHT = 0.42;
 const VEHICLE_HALF_LENGTH = 1.08;
+const CAR_REST_Y = 0.42;
+const WHEEL_RADIUS = 0.23;
+const WHEELBASE = 2.1;
 
 function forwardFromHeading(heading: number) {
   // The modeled front of every car points down its local -Z axis.
@@ -52,6 +57,16 @@ function vehicleAxes(object: THREE.Object3D) {
   ] as const;
 }
 
+function vehicleVerticalRadius(object: THREE.Object3D) {
+  const rotation = new THREE.Matrix4().makeRotationFromQuaternion(object.quaternion);
+  const elements = rotation.elements;
+  return (
+    VEHICLE_HALF_WIDTH * Math.abs(elements[1]) +
+    VEHICLE_HALF_HEIGHT * Math.abs(elements[5]) +
+    VEHICLE_HALF_LENGTH * Math.abs(elements[9])
+  );
+}
+
 function resolveVehicleOverlap(
   a: THREE.Object3D,
   b: THREE.Object3D,
@@ -61,7 +76,7 @@ function resolveVehicleOverlap(
   const bAxes = vehicleAxes(b);
   const centerDelta = new THREE.Vector2(b.position.x - a.position.x, b.position.z - a.position.z);
   let smallestDepth = Number.POSITIVE_INFINITY;
-  let collisionNormal = new THREE.Vector2();
+  const collisionNormal = new THREE.Vector3();
 
   for (const axis of [...aAxes, ...bAxes]) {
     const aRadius =
@@ -76,17 +91,60 @@ function resolveVehicleOverlap(
     if (depth <= 0) return null;
     if (depth < smallestDepth) {
       smallestDepth = depth;
-      collisionNormal = axis.clone().multiplyScalar(signedDistance < 0 ? -1 : 1);
+      const direction = signedDistance < 0 ? -1 : 1;
+      collisionNormal.set(axis.x * direction, 0, axis.y * direction);
     }
+  }
+
+  const verticalDistance = b.position.y - a.position.y;
+  const verticalDepth = vehicleVerticalRadius(a) + vehicleVerticalRadius(b) - Math.abs(verticalDistance);
+  if (verticalDepth <= 0) return null;
+  if (verticalDepth < smallestDepth) {
+    smallestDepth = verticalDepth;
+    collisionNormal.set(0, verticalDistance < 0 ? -1 : 1, 0);
   }
 
   const bShare = 1 - aShare;
   a.position.x -= collisionNormal.x * smallestDepth * aShare;
-  a.position.z -= collisionNormal.y * smallestDepth * aShare;
+  a.position.y -= collisionNormal.y * smallestDepth * aShare;
+  a.position.z -= collisionNormal.z * smallestDepth * aShare;
   b.position.x += collisionNormal.x * smallestDepth * bShare;
-  b.position.z += collisionNormal.y * smallestDepth * bShare;
+  b.position.y += collisionNormal.y * smallestDepth * bShare;
+  b.position.z += collisionNormal.z * smallestDepth * bShare;
 
   return { normal: collisionNormal, depth: smallestDepth };
+}
+
+function integrateCrashBody(
+  object: THREE.Object3D,
+  velocity: THREE.Vector3,
+  angularVelocity: THREE.Vector3,
+  dt: number,
+) {
+  velocity.y -= 9.8 * dt;
+  object.position.addScaledVector(velocity, dt);
+
+  const angularSpeed = angularVelocity.length();
+  if (angularSpeed > 0.0001) {
+    const deltaRotation = new THREE.Quaternion().setFromAxisAngle(
+      angularVelocity.clone().normalize(),
+      angularSpeed * dt,
+    );
+    object.quaternion.premultiply(deltaRotation).normalize();
+  }
+
+  const groundHeight = vehicleVerticalRadius(object);
+  if (object.position.y < groundHeight) {
+    object.position.y = groundHeight;
+    if (velocity.y < 0) velocity.y *= -0.22;
+    velocity.x *= Math.pow(0.91, dt * 60);
+    velocity.z *= Math.pow(0.91, dt * 60);
+    angularVelocity.multiplyScalar(Math.pow(0.9, dt * 60));
+  } else {
+    velocity.x *= Math.pow(0.982, dt * 60);
+    velocity.z *= Math.pow(0.982, dt * 60);
+    angularVelocity.multiplyScalar(Math.pow(0.985, dt * 60));
+  }
 }
 
 function money(value: number) {
@@ -116,37 +174,46 @@ function makeCar(color: number, player = false) {
   });
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.42, 2.1), bodyMaterial);
-  body.position.y = 0.43;
+  body.position.y = 0;
   body.castShadow = true;
   body.receiveShadow = true;
   group.add(body);
 
   const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.38, 0.95), darkMaterial);
-  cabin.position.set(0, 0.78, 0.08);
+  cabin.position.set(0, 0.35, 0.08);
   cabin.castShadow = true;
   group.add(cabin);
 
   const lightGeometry = new THREE.BoxGeometry(0.28, 0.12, 0.05);
   for (const x of [-0.36, 0.36]) {
     const light = new THREE.Mesh(lightGeometry, lightMaterial);
-    light.position.set(x, 0.48, -1.07);
+    light.position.set(x, 0.05, -1.07);
     group.add(light);
   }
 
   const wheelGeometry = new THREE.CylinderGeometry(0.23, 0.23, 0.16, 12);
   const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x090b0d, roughness: 0.9 });
+  const frontWheelPivots: THREE.Group[] = [];
+  const wheelMeshes: THREE.Mesh[] = [];
   for (const x of [-0.62, 0.62]) {
     for (const z of [-0.68, 0.68]) {
+      const wheelPivot = new THREE.Group();
+      wheelPivot.position.set(x, -0.15, z);
+      group.add(wheelPivot);
+
       const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
       wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(x, 0.28, z);
-      group.add(wheel);
+      wheelPivot.add(wheel);
+      wheelMeshes.push(wheel);
+      if (z < 0) frontWheelPivots.push(wheelPivot);
     }
   }
+  group.userData.frontWheelPivots = frontWheelPivots;
+  group.userData.wheelMeshes = wheelMeshes;
 
   if (player) {
     const glow = new THREE.PointLight(0xff8a2d, 5, 5, 2);
-    glow.position.set(0, 0.7, -1.2);
+    glow.position.set(0, 0.27, -1.2);
     group.add(glow);
   }
   return group;
@@ -304,8 +371,10 @@ export function GameStage() {
     addRoad(scene);
 
     const player = makeCar(0xff6a2b, true);
-    player.position.set(0, 0.08, 17);
+    player.position.set(0, CAR_REST_Y, 17);
     scene.add(player);
+    const playerFrontWheels = player.userData.frontWheelPivots as THREE.Group[];
+    const playerWheelMeshes = player.userData.wheelMeshes as THREE.Mesh[];
 
     const trafficSeed = [
       { x: -22, lane: -2.15, direction: 1 as const, speed: 6.5 },
@@ -324,18 +393,19 @@ export function GameStage() {
 
     const traffic: TrafficCar[] = trafficSeed.map((seed, index) => {
       const mesh = makeCar(TRAFFIC_COLORS[index % TRAFFIC_COLORS.length]);
-      mesh.position.set(seed.x, 0.08, seed.lane);
+      mesh.position.set(seed.x, CAR_REST_Y, seed.lane);
       mesh.rotation.y = seed.direction === 1 ? -Math.PI / 2 : Math.PI / 2;
       scene.add(mesh);
       return {
         mesh,
         lane: seed.lane,
         direction: seed.direction,
+        baseSpeed: seed.speed,
         speed: seed.speed,
         crashed: false,
         hit: false,
         velocity: new THREE.Vector3(),
-        spin: 0,
+        angularVelocity: new THREE.Vector3(),
       };
     });
 
@@ -348,31 +418,37 @@ export function GameStage() {
     let shake = 0;
     let lastHudUpdate = 0;
     let playerCrashed = false;
-    let playerSpin = 0;
+    let steeringAngle = 0;
     let crashStartedAt = 0;
     const playerVelocity = new THREE.Vector3();
+    const playerAngularVelocity = new THREE.Vector3();
     const cinematicTarget = player.position.clone();
 
     const reset = () => {
-      player.position.set(0, 0.08, 17);
+      player.position.set(0, CAR_REST_Y, 17);
       player.rotation.set(0, 0, 0);
       playerSpeed = 0;
       playerHeading = 0;
       playerCrashed = false;
-      playerSpin = 0;
+      steeringAngle = 0;
       crashStartedAt = 0;
       playerVelocity.set(0, 0, 0);
+      playerAngularVelocity.set(0, 0, 0);
+      playerFrontWheels.forEach((wheel) => {
+        wheel.rotation.y = 0;
+      });
       cinematicTarget.copy(player.position);
       scoreValue = 0;
       chainValue = 0;
       traffic.forEach((car, index) => {
         const seed = trafficSeed[index];
-        car.mesh.position.set(seed.x, 0.08, seed.lane);
+        car.mesh.position.set(seed.x, CAR_REST_Y, seed.lane);
         car.mesh.rotation.set(0, seed.direction === 1 ? -Math.PI / 2 : Math.PI / 2, 0);
+        car.speed = car.baseSpeed;
         car.crashed = false;
         car.hit = false;
         car.velocity.set(0, 0, 0);
-        car.spin = 0;
+        car.angularVelocity.set(0, 0, 0);
       });
     };
     runtimeRef.current = { reset };
@@ -381,7 +457,13 @@ export function GameStage() {
       car.crashed = true;
       car.hit = true;
       car.velocity.copy(impulse);
-      car.spin = (car.direction * 0.9 + Math.sin(car.mesh.position.x) * 0.35) * impact * 0.07;
+      const variation = Math.sin(car.mesh.position.x * 1.73 + car.mesh.position.z * 2.11);
+      car.velocity.y += THREE.MathUtils.clamp(0.45 + impact * (0.055 + Math.abs(variation) * 0.025), 0.7, 3.2);
+      car.angularVelocity.set(
+        (0.7 + impact * 0.045) * (variation < 0 ? -1 : 1),
+        (car.direction * 0.5 + variation * 0.35) * Math.min(impact * 0.075, 1.8),
+        (0.55 + impact * 0.04) * (Math.cos(car.mesh.position.x * 0.91) < 0 ? -1 : 1),
+      );
       chainValue += 1;
       scoreValue += Math.round(impact * (1100 + chainValue * 240));
       setScore(scoreValue);
@@ -435,9 +517,17 @@ export function GameStage() {
         if (playerSpeed < 0.025) playerSpeed = 0;
 
         const steerInput = (controls.left ? 1 : 0) - (controls.right ? 1 : 0);
-        if (steerInput !== 0 && playerSpeed > 0.35) {
-          playerHeading += steerInput * Math.min(playerSpeed / 8, 1.3) * dt;
+        const targetSteeringAngle = steerInput * THREE.MathUtils.degToRad(28);
+        steeringAngle = THREE.MathUtils.damp(steeringAngle, targetSteeringAngle, 8.5, dt);
+        if (playerSpeed > 0.35) {
+          playerHeading += (playerSpeed / WHEELBASE) * Math.tan(steeringAngle) * 0.28 * dt;
         }
+        playerFrontWheels.forEach((wheel) => {
+          wheel.rotation.y = steeringAngle;
+        });
+        playerWheelMeshes.forEach((wheel) => {
+          wheel.rotation.y -= (playerSpeed * dt) / WHEEL_RADIUS;
+        });
 
         forward = forwardFromHeading(playerHeading);
         player.position.addScaledVector(forward, playerSpeed * dt);
@@ -445,18 +535,39 @@ export function GameStage() {
         player.position.z = THREE.MathUtils.clamp(player.position.z, -21, 19);
         player.rotation.y = playerHeading;
       } else if (simulationActive && playerCrashed) {
-        player.position.addScaledVector(playerVelocity, dt);
-        playerVelocity.multiplyScalar(Math.pow(0.958, dt * 60));
-        player.rotation.y += playerSpin * dt;
-        playerSpin *= Math.pow(0.965, dt * 60);
+        integrateCrashBody(player, playerVelocity, playerAngularVelocity, dt);
         playerHeading = player.rotation.y;
         forward = forwardFromHeading(playerHeading);
       }
 
       if (simulationActive) {
         for (const car of traffic) {
+          if (car.crashed) continue;
+
+          let nearestGap = 48;
+          let leaderSpeed = car.baseSpeed;
+          for (const other of traffic) {
+            if (other === car || other.crashed || other.lane !== car.lane || other.direction !== car.direction) continue;
+            let forwardGap = (other.mesh.position.x - car.mesh.position.x) * car.direction;
+            if (forwardGap <= 0) forwardGap += 48;
+            if (forwardGap < nearestGap) {
+              nearestGap = forwardGap;
+              leaderSpeed = other.speed;
+            }
+          }
+
+          const spacingFactor = THREE.MathUtils.smoothstep(nearestGap, 2.6, 7.2);
+          const targetSpeed = Math.min(car.baseSpeed, leaderSpeed + Math.max(nearestGap - 3.2, 0) * 0.65) * spacingFactor;
+          car.speed = THREE.MathUtils.damp(car.speed, targetSpeed, nearestGap < 5 ? 9 : 2.2, dt);
+        }
+
+        for (const car of traffic) {
           if (!car.crashed) {
             car.mesh.position.x += car.direction * car.speed * dt;
+            const wheelMeshes = car.mesh.userData.wheelMeshes as THREE.Mesh[];
+            wheelMeshes.forEach((wheel) => {
+              wheel.rotation.y -= (car.speed * dt) / WHEEL_RADIUS;
+            });
             if (car.mesh.position.x > 24) {
               car.mesh.position.x = -24;
               car.hit = false;
@@ -465,10 +576,7 @@ export function GameStage() {
               car.hit = false;
             }
           } else {
-            car.mesh.position.addScaledVector(car.velocity, dt);
-            car.velocity.multiplyScalar(Math.pow(0.962, dt * 60));
-            car.mesh.rotation.y += car.spin * dt;
-            car.spin *= Math.pow(0.97, dt * 60);
+            integrateCrashBody(car.mesh, car.velocity, car.angularVelocity, dt);
           }
 
           const contact = resolveVehicleOverlap(player, car.mesh, car.crashed ? 0.5 : 0.68);
@@ -485,8 +593,14 @@ export function GameStage() {
               playerCrashed = true;
               playerVelocity.copy(forward).multiplyScalar(playerSpeed * 0.56);
               playerVelocity.x -= contact.normal.x * car.speed * 0.18;
-              playerVelocity.z -= contact.normal.y * car.speed * 0.18;
-              playerSpin = (contact.normal.x * 0.8 + car.direction * 0.35) * Math.min(impact * 0.06, 1.25);
+              playerVelocity.z -= contact.normal.z * car.speed * 0.18;
+              playerVelocity.y = THREE.MathUtils.clamp(impact * 0.045, 0.65, 2.2);
+              const rollImpulse = Math.min(impact * 0.055, 1.65);
+              playerAngularVelocity.set(
+                contact.normal.z * rollImpulse,
+                (contact.normal.x * 0.5 + car.direction * 0.3) * rollImpulse,
+                -contact.normal.x * rollImpulse,
+              );
               playerSpeed = 0;
               crashStartedAt = now;
               phaseRef.current = 'crash';
@@ -497,11 +611,12 @@ export function GameStage() {
               playerVelocity.multiplyScalar(0.72);
             }
           } else if (contact && playerCrashed && car.crashed) {
-            const normal = new THREE.Vector3(contact.normal.x, 0, contact.normal.y);
+            const normal = contact.normal;
             const closingSpeed = playerVelocity.clone().sub(car.velocity).dot(normal);
             if (closingSpeed > 0) {
               playerVelocity.addScaledVector(normal, -closingSpeed * 0.58);
               car.velocity.addScaledVector(normal, closingSpeed * 0.58);
+              playerAngularVelocity.add(new THREE.Vector3(normal.z, normal.x * 0.35, -normal.x).multiplyScalar(closingSpeed * 0.045));
             }
           }
         }
@@ -512,7 +627,11 @@ export function GameStage() {
             const b = traffic[j];
             const contact = resolveVehicleOverlap(a.mesh, b.mesh);
             if (!contact) continue;
-            if (!a.crashed && !b.crashed) continue;
+            if (!a.crashed && !b.crashed) {
+              a.mesh.position.y = CAR_REST_Y;
+              b.mesh.position.y = CAR_REST_Y;
+              continue;
+            }
 
             if (a.crashed && !b.hit) {
               const impact = Math.max(a.velocity.length(), 2.5) + b.speed;
@@ -525,11 +644,13 @@ export function GameStage() {
               impulse.x += a.direction * a.speed * 0.42;
               crashCar(a, impact, impulse);
             } else if (a.crashed && b.crashed) {
-              const normal = new THREE.Vector3(contact.normal.x, 0, contact.normal.y);
+              const normal = contact.normal;
               const closingSpeed = a.velocity.clone().sub(b.velocity).dot(normal);
               if (closingSpeed > 0) {
                 a.velocity.addScaledVector(normal, -closingSpeed * 0.52);
                 b.velocity.addScaledVector(normal, closingSpeed * 0.52);
+                a.angularVelocity.add(new THREE.Vector3(normal.z, normal.x * 0.3, -normal.x).multiplyScalar(closingSpeed * 0.04));
+                b.angularVelocity.add(new THREE.Vector3(-normal.z, -normal.x * 0.3, normal.x).multiplyScalar(closingSpeed * 0.04));
               }
             }
           }
@@ -544,8 +665,11 @@ export function GameStage() {
           }
 
           const wreckMotion =
-            playerVelocity.length() +
-            traffic.reduce((total, car) => total + (car.crashed ? car.velocity.length() : 0), 0);
+            playerVelocity.length() + playerAngularVelocity.length() * 0.35 +
+            traffic.reduce(
+              (total, car) => total + (car.crashed ? car.velocity.length() + car.angularVelocity.length() * 0.35 : 0),
+              0,
+            );
           if (elapsed > 3.5 && (wreckMotion < 1.5 || elapsed > 10)) {
             phaseRef.current = 'result';
             setPhase('result');
@@ -567,7 +691,7 @@ export function GameStage() {
         desiredCamera = player.position.clone().addScaledVector(forward, -6.2);
         desiredCamera.y += 3.2;
         camera.position.copy(desiredCamera);
-        camera.lookAt(player.position.x, player.position.y + 0.52, player.position.z);
+        camera.lookAt(player.position.x, player.position.y + 0.08, player.position.z);
       } else {
         const crashCenter = player.position.clone();
         let crashCount = 1;
