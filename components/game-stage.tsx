@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Gauge, RotateCcw } from 'lucide-react';
+import { Gauge, RotateCcw } from 'lucide-react';
 import * as THREE from 'three';
 
 type Controls = {
@@ -26,8 +26,6 @@ type GameRuntime = {
   reset: () => void;
 };
 
-type CameraMode = 'hood' | 'chase' | 'table';
-
 type VehicleContact = {
   normal: THREE.Vector2;
   depth: number;
@@ -36,6 +34,11 @@ type VehicleContact = {
 const TRAFFIC_COLORS = [0x35b8c6, 0xf0b03d, 0xd84c4a, 0x6f7fd7, 0xe6e2d3, 0x6cab63];
 const VEHICLE_HALF_WIDTH = 0.7;
 const VEHICLE_HALF_LENGTH = 1.08;
+
+function forwardFromHeading(heading: number) {
+  // The modeled front of every car points down its local -Z axis.
+  return new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading));
+}
 
 function vehicleAxes(object: THREE.Object3D) {
   const heading = object.rotation.y;
@@ -236,13 +239,11 @@ export function GameStage() {
     right: false,
   });
   const runtimeRef = useRef<GameRuntime | null>(null);
-  const cameraModeRef = useRef<CameraMode>('hood');
   const [score, setScore] = useState(0);
   const [speed, setSpeed] = useState(0);
   const [chain, setChain] = useState(0);
   const [status, setStatus] = useState('APPROACH');
   const [hasDriven, setHasDriven] = useState(false);
-  const [cameraMode, setCameraMode] = useState<CameraMode>('hood');
 
   const setControl = useCallback((key: keyof Controls, active: boolean) => {
     controlsRef.current[key] = active;
@@ -255,17 +256,6 @@ export function GameStage() {
     setSpeed(0);
     setChain(0);
     setStatus('APPROACH');
-  }, []);
-
-  const toggleCamera = useCallback(() => {
-    const nextMode: CameraMode =
-      cameraModeRef.current === 'hood'
-        ? 'chase'
-        : cameraModeRef.current === 'chase'
-          ? 'table'
-          : 'hood';
-    cameraModeRef.current = nextMode;
-    setCameraMode(nextMode);
   }, []);
 
   useEffect(() => {
@@ -419,7 +409,7 @@ export function GameStage() {
         playerHeading += steerInput * Math.sign(playerSpeed) * Math.min(Math.abs(playerSpeed) / 7, 1.25) * dt;
       }
 
-      const forward = new THREE.Vector3(Math.sin(playerHeading), 0, -Math.cos(playerHeading));
+      const forward = forwardFromHeading(playerHeading);
       player.position.addScaledVector(forward, playerSpeed * dt);
       player.position.x = THREE.MathUtils.clamp(player.position.x, -5.1, 5.1);
       player.position.z = THREE.MathUtils.clamp(player.position.z, -21, 20);
@@ -482,32 +472,15 @@ export function GameStage() {
         }
       }
 
-      const cameraForward = new THREE.Vector3(Math.sin(playerHeading), 0, -Math.cos(playerHeading));
-      let desiredCamera: THREE.Vector3;
-      let cameraTarget: THREE.Vector3;
-
-      if (cameraModeRef.current === 'hood') {
-        desiredCamera = player.position.clone().addScaledVector(cameraForward, 0.04);
-        desiredCamera.y += 1.2;
-        cameraTarget = desiredCamera.clone().addScaledVector(cameraForward, 9);
-        cameraTarget.y -= 0.75;
-      } else if (cameraModeRef.current === 'chase') {
-        desiredCamera = player.position.clone().addScaledVector(cameraForward, -4.6);
-        desiredCamera.y += 2.15;
-        cameraTarget = player.position.clone().addScaledVector(cameraForward, 1.8);
-        cameraTarget.y += 0.35;
-      } else {
-        desiredCamera = new THREE.Vector3(13.5, 17.5, 17.5);
-        cameraTarget = new THREE.Vector3(0, 0.4, 0);
-      }
+      const desiredCamera = player.position.clone().addScaledVector(forward, -6.2);
+      desiredCamera.y += 3.2;
       if (shake > 0.005) {
-        const shakeScale = cameraModeRef.current === 'hood' ? 0.45 : 1;
-        desiredCamera.x += (Math.random() - 0.5) * shake * shakeScale;
-        desiredCamera.y += (Math.random() - 0.5) * shake * 0.5 * shakeScale;
+        desiredCamera.x += (Math.random() - 0.5) * shake * 0.55;
+        desiredCamera.y += (Math.random() - 0.5) * shake * 0.28;
         shake *= Math.pow(0.88, dt * 60);
       }
-      camera.position.lerp(desiredCamera, 1 - Math.pow(0.002, dt));
-      camera.lookAt(cameraTarget);
+      camera.position.copy(desiredCamera);
+      camera.lookAt(player.position.x, player.position.y + 0.52, player.position.z);
       renderer.render(scene, camera);
 
       if (now - lastHudUpdate > 80) {
@@ -567,11 +540,7 @@ export function GameStage() {
           </div>
         </div>
 
-        <div className="hud-glass pointer-events-auto flex items-center gap-2 rounded-xl p-1.5">
-          <button type="button" onClick={toggleCamera} className={`flex h-9 items-center gap-2 rounded-lg px-2.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em] transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffad44] ${cameraMode === 'table' ? 'bg-[#5dcbd2]/15 text-[#72d9dd]' : 'text-white/65'}`} aria-label={`Current camera: ${cameraMode}. Switch camera`}>
-            <Camera className="h-4 w-4" />
-            <span className="hidden sm:inline">{cameraMode}</span>
-          </button>
+        <div className="hud-glass pointer-events-auto rounded-xl p-1.5">
           <button type="button" onClick={resetGame} className="flex h-9 items-center gap-2 rounded-lg bg-[#f1eee4] px-3 text-xs font-black uppercase tracking-[0.12em] text-[#111318] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffad44]">
             <RotateCcw className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Reset</span>
