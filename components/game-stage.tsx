@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Gauge, RotateCcw } from 'lucide-react';
+import { Camera, Gauge, HelpCircle, RotateCcw } from 'lucide-react';
 import * as THREE from 'three';
 
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ type GameRuntime = {
 };
 
 type GamePhase = 'ready' | 'approach' | 'crash' | 'aftermath' | 'result';
+type CameraMode = 'near' | 'chase' | 'overhead';
 
 type VehicleContact = {
   normal: THREE.Vector3;
@@ -136,14 +137,26 @@ function integrateCrashBody(
   const groundHeight = vehicleVerticalRadius(object);
   if (object.position.y < groundHeight) {
     object.position.y = groundHeight;
-    if (velocity.y < 0) velocity.y *= -0.22;
-    velocity.x *= Math.pow(0.91, dt * 60);
-    velocity.z *= Math.pow(0.91, dt * 60);
-    angularVelocity.multiplyScalar(Math.pow(0.9, dt * 60));
+    if (velocity.y < -0.45) velocity.y *= -0.18;
+    else velocity.y = 0;
+
+    const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
+    if (horizontalSpeed > 0) {
+      const stoppedSpeed = Math.max(0, horizontalSpeed - 8.5 * dt);
+      const frictionScale = stoppedSpeed / horizontalSpeed;
+      velocity.x *= frictionScale;
+      velocity.z *= frictionScale;
+    }
+    angularVelocity.multiplyScalar(Math.pow(0.86, dt * 60));
+    if (Math.hypot(velocity.x, velocity.z) < 0.06) {
+      velocity.x = 0;
+      velocity.z = 0;
+    }
+    if (angularVelocity.lengthSq() < 0.0025) angularVelocity.set(0, 0, 0);
   } else {
-    velocity.x *= Math.pow(0.982, dt * 60);
-    velocity.z *= Math.pow(0.982, dt * 60);
-    angularVelocity.multiplyScalar(Math.pow(0.985, dt * 60));
+    velocity.x *= Math.pow(0.991, dt * 60);
+    velocity.z *= Math.pow(0.991, dt * 60);
+    angularVelocity.multiplyScalar(Math.pow(0.992, dt * 60));
   }
 }
 
@@ -194,22 +207,25 @@ function makeCar(color: number, player = false) {
   const wheelGeometry = new THREE.CylinderGeometry(0.23, 0.23, 0.16, 12);
   const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x090b0d, roughness: 0.9 });
   const frontWheelPivots: THREE.Group[] = [];
-  const wheelMeshes: THREE.Mesh[] = [];
+  const wheelSpinPivots: THREE.Group[] = [];
   for (const x of [-0.62, 0.62]) {
     for (const z of [-0.68, 0.68]) {
-      const wheelPivot = new THREE.Group();
-      wheelPivot.position.set(x, -0.15, z);
-      group.add(wheelPivot);
+      const steeringPivot = new THREE.Group();
+      steeringPivot.position.set(x, -0.15, z);
+      group.add(steeringPivot);
+
+      const spinPivot = new THREE.Group();
+      steeringPivot.add(spinPivot);
 
       const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
       wheel.rotation.z = Math.PI / 2;
-      wheelPivot.add(wheel);
-      wheelMeshes.push(wheel);
-      if (z < 0) frontWheelPivots.push(wheelPivot);
+      spinPivot.add(wheel);
+      wheelSpinPivots.push(spinPivot);
+      if (z < 0) frontWheelPivots.push(steeringPivot);
     }
   }
   group.userData.frontWheelPivots = frontWheelPivots;
-  group.userData.wheelMeshes = wheelMeshes;
+  group.userData.wheelSpinPivots = wheelSpinPivots;
 
   if (player) {
     const glow = new THREE.PointLight(0xff8a2d, 5, 5, 2);
@@ -311,11 +327,15 @@ export function GameStage() {
   });
   const runtimeRef = useRef<GameRuntime | null>(null);
   const phaseRef = useRef<GamePhase>('ready');
+  const cameraModeRef = useRef<CameraMode>('near');
+  const helpOpenRef = useRef(false);
   const [score, setScore] = useState(0);
   const [speed, setSpeed] = useState(0);
   const [chain, setChain] = useState(0);
   const [status, setStatus] = useState('READY');
   const [phase, setPhase] = useState<GamePhase>('ready');
+  const [cameraMode, setCameraMode] = useState<CameraMode>('near');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const setControl = useCallback((key: keyof Controls, active: boolean) => {
     controlsRef.current[key] = active;
@@ -335,6 +355,28 @@ export function GameStage() {
     setSpeed(0);
     setChain(0);
     setStatus('READY');
+  }, []);
+
+  const toggleCamera = useCallback(() => {
+    const nextMode: CameraMode =
+      cameraModeRef.current === 'near'
+        ? 'chase'
+        : cameraModeRef.current === 'chase'
+          ? 'overhead'
+          : 'near';
+    cameraModeRef.current = nextMode;
+    setCameraMode(nextMode);
+  }, []);
+
+  const openHelp = useCallback(() => {
+    helpOpenRef.current = true;
+    controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
+    setHelpOpen(true);
+  }, []);
+
+  const closeHelp = useCallback(() => {
+    helpOpenRef.current = false;
+    setHelpOpen(false);
   }, []);
 
   useEffect(() => {
@@ -374,7 +416,7 @@ export function GameStage() {
     player.position.set(0, CAR_REST_Y, 17);
     scene.add(player);
     const playerFrontWheels = player.userData.frontWheelPivots as THREE.Group[];
-    const playerWheelMeshes = player.userData.wheelMeshes as THREE.Mesh[];
+    const playerWheelSpinPivots = player.userData.wheelSpinPivots as THREE.Group[];
 
     const trafficSeed = [
       { x: -22, lane: -2.15, direction: 1 as const, speed: 6.5 },
@@ -437,6 +479,9 @@ export function GameStage() {
       playerFrontWheels.forEach((wheel) => {
         wheel.rotation.y = 0;
       });
+      playerWheelSpinPivots.forEach((wheel) => {
+        wheel.rotation.x = 0;
+      });
       cinematicTarget.copy(player.position);
       scoreValue = 0;
       chainValue = 0;
@@ -449,6 +494,9 @@ export function GameStage() {
         car.hit = false;
         car.velocity.set(0, 0, 0);
         car.angularVelocity.set(0, 0, 0);
+        (car.mesh.userData.wheelSpinPivots as THREE.Group[]).forEach((wheel) => {
+          wheel.rotation.x = 0;
+        });
       });
     };
     runtimeRef.current = { reset };
@@ -487,10 +535,16 @@ export function GameStage() {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
         event.preventDefault();
       }
+      if (event.key === 'Escape') {
+        closeHelp();
+        return;
+      }
+      if (helpOpenRef.current) return;
       if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') setControl('accelerate', true);
       if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') setControl('brake', true);
       if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') setControl('left', true);
       if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') setControl('right', true);
+      if (event.key.toLowerCase() === 'c') toggleCamera();
       if (event.key.toLowerCase() === 'r') resetGame();
       if ((event.key === 'Enter' || event.key === ' ') && phaseRef.current === 'result') resetGame();
     };
@@ -525,8 +579,8 @@ export function GameStage() {
         playerFrontWheels.forEach((wheel) => {
           wheel.rotation.y = steeringAngle;
         });
-        playerWheelMeshes.forEach((wheel) => {
-          wheel.rotation.y -= (playerSpeed * dt) / WHEEL_RADIUS;
+        playerWheelSpinPivots.forEach((wheel) => {
+          wheel.rotation.x -= (playerSpeed * dt) / WHEEL_RADIUS;
         });
 
         forward = forwardFromHeading(playerHeading);
@@ -564,9 +618,9 @@ export function GameStage() {
         for (const car of traffic) {
           if (!car.crashed) {
             car.mesh.position.x += car.direction * car.speed * dt;
-            const wheelMeshes = car.mesh.userData.wheelMeshes as THREE.Mesh[];
-            wheelMeshes.forEach((wheel) => {
-              wheel.rotation.y -= (car.speed * dt) / WHEEL_RADIUS;
+            const wheelSpinPivots = car.mesh.userData.wheelSpinPivots as THREE.Group[];
+            wheelSpinPivots.forEach((wheel) => {
+              wheel.rotation.x -= (car.speed * dt) / WHEEL_RADIUS;
             });
             if (car.mesh.position.x > 24) {
               car.mesh.position.x = -24;
@@ -688,10 +742,13 @@ export function GameStage() {
 
       let desiredCamera: THREE.Vector3;
       if (!playerCrashed) {
-        desiredCamera = player.position.clone().addScaledVector(forward, -6.2);
-        desiredCamera.y += 3.2;
+        const cameraModeValue = cameraModeRef.current;
+        const cameraDistance = cameraModeValue === 'near' ? 3.5 : cameraModeValue === 'chase' ? 6.2 : 5.2;
+        const cameraHeight = cameraModeValue === 'near' ? 1.65 : cameraModeValue === 'chase' ? 3.2 : 8.5;
+        desiredCamera = player.position.clone().addScaledVector(forward, -cameraDistance);
+        desiredCamera.y += cameraHeight;
         camera.position.copy(desiredCamera);
-        camera.lookAt(player.position.x, player.position.y + 0.08, player.position.z);
+        camera.lookAt(player.position.x, player.position.y, player.position.z);
       } else {
         const crashCenter = player.position.clone();
         let crashCount = 1;
@@ -702,7 +759,14 @@ export function GameStage() {
         }
         crashCenter.multiplyScalar(1 / crashCount);
         cinematicTarget.lerp(crashCenter, 1 - Math.pow(0.018, dt));
-        desiredCamera = cinematicTarget.clone().add(new THREE.Vector3(10.5, 11.5, 12.5));
+        const cameraModeValue = cameraModeRef.current;
+        const crashOffset =
+          cameraModeValue === 'near'
+            ? new THREE.Vector3(6.8, 5.4, 7.8)
+            : cameraModeValue === 'chase'
+              ? new THREE.Vector3(10.5, 11.5, 12.5)
+              : new THREE.Vector3(0, 18.5, 5.5);
+        desiredCamera = cinematicTarget.clone().add(crashOffset);
         camera.position.lerp(desiredCamera, 1 - Math.pow(0.045, dt));
         camera.lookAt(cinematicTarget.x, cinematicTarget.y + 0.35, cinematicTarget.z);
       }
@@ -742,20 +806,7 @@ export function GameStage() {
       });
       renderer.domElement.remove();
     };
-  }, [resetGame, setControl]);
-
-  const drivingLocked = phase === 'crash' || phase === 'aftermath' || phase === 'result';
-
-  const pointerHandlers = (control: keyof Controls) => ({
-    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (drivingLocked) return;
-      event.currentTarget.setPointerCapture(event.pointerId);
-      setControl(control, true);
-    },
-    onPointerUp: () => setControl(control, false),
-    onPointerCancel: () => setControl(control, false),
-    onPointerLeave: () => setControl(control, false),
-  });
+  }, [closeHelp, resetGame, setControl, toggleCamera]);
 
   return (
     <main className="relative h-[100svh] w-screen overflow-hidden bg-[#07090d] text-[#f6f3e9]">
@@ -777,13 +828,43 @@ export function GameStage() {
           </div>
         </div>
 
-        <div className="hud-glass pointer-events-auto rounded-xl p-1.5">
-          <button type="button" onClick={resetGame} className="flex h-9 items-center gap-2 rounded-lg bg-[#f1eee4] px-3 text-xs font-black uppercase tracking-[0.12em] text-[#111318] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffad44]">
+        <div className="hud-glass pointer-events-auto flex items-center gap-1 rounded-xl p-1.5">
+          <Button type="button" variant="ghost" size="lg" onClick={toggleCamera} aria-label={`Camera: ${cameraMode}. Change camera`} className="h-9 gap-2 px-2.5 font-mono text-[9px] font-bold uppercase tracking-[0.13em] text-white/65 hover:bg-white/10 hover:text-white">
+            <Camera className="h-4 w-4" />
+            <span className="hidden sm:inline">{cameraMode}</span>
+          </Button>
+          <Button type="button" variant="ghost" size="lg" aria-label="Open controls help" onClick={openHelp} className="h-9 gap-2 px-2.5 font-mono text-[9px] font-bold uppercase tracking-[0.13em] text-white/65 hover:bg-white/10 hover:text-white">
+            <HelpCircle className="h-4 w-4" />
+            <span className="hidden sm:inline">Help</span>
+          </Button>
+          <Button type="button" size="lg" onClick={resetGame} className="h-9 gap-2 bg-[#f1eee4] px-3 text-xs font-black uppercase tracking-[0.12em] text-[#111318] hover:bg-white">
             <RotateCcw className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Reset</span>
-          </button>
+          </Button>
         </div>
       </header>
+
+      {helpOpen && (
+        <div className="absolute inset-0 z-50 grid place-items-center bg-black/55 px-4 backdrop-blur-sm" role="presentation" onPointerDown={closeHelp}>
+          <dialog open aria-labelledby="controls-help-title" className="hud-glass relative m-0 w-full max-w-md rounded-2xl border border-white/10 p-6 text-[#f6f3e9] shadow-[0_30px_100px_rgb(0_0_0/80%)]" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="controls-help-title" className="font-[var(--font-display)] text-xl font-black uppercase italic tracking-[-0.02em]">Crash controls</h2>
+                <p className="mt-2 text-sm leading-relaxed text-white/55">Build speed, choose an impact angle, and let the chain reaction play out.</p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={closeHelp} className="text-white/55 hover:bg-white/10 hover:text-white">Close</Button>
+            </div>
+            <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 border-y border-white/10 py-4 text-sm">
+              <dt className="font-mono font-black text-[#ff9a3e]">W / ↑</dt><dd className="text-white/70">Accelerate forward</dd>
+              <dt className="font-mono font-black text-[#ff9a3e]">S / ↓</dt><dd className="text-white/70">Brake</dd>
+              <dt className="font-mono font-black text-[#ff9a3e]">A D / ← →</dt><dd className="text-white/70">Steer the front wheels</dd>
+              <dt className="font-mono font-black text-[#72d9dd]">C</dt><dd className="text-white/70">Cycle near, chase, and overhead cameras</dd>
+              <dt className="font-mono font-black text-[#72d9dd]">R</dt><dd className="text-white/70">Restart the run</dd>
+            </dl>
+            <p className="mt-4 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/40">After impact, steering locks and the camera follows the wreck automatically.</p>
+          </dialog>
+        </div>
+      )}
 
       <section className="pointer-events-none absolute left-1/2 top-[82px] z-10 -translate-x-1/2 text-center sm:top-6">
         <div className="hud-glass min-w-[190px] rounded-xl px-5 py-3 sm:min-w-[240px]">
@@ -800,12 +881,12 @@ export function GameStage() {
       </section>
 
       {phase === 'ready' && (
-        <div className="pointer-events-none absolute left-1/2 top-[38%] z-10 w-[min(420px,calc(100%-32px))] -translate-x-1/2 text-center">
-          <p className="font-[var(--font-display)] text-[clamp(24px,4vw,48px)] font-black uppercase italic leading-[0.9] tracking-[-0.03em] text-white drop-shadow-[0_4px_24px_rgb(0_0_0/80%)]">
-            Build speed.<br /><span className="text-[#ff8a35]">Pick your impact.</span>
+        <div className="hud-glass pointer-events-none absolute bottom-4 left-4 z-10 w-[min(320px,calc(100%-132px))] rounded-2xl px-4 py-4 text-left sm:bottom-6 sm:left-6 sm:px-5">
+          <p className="font-[var(--font-display)] text-xl font-black uppercase italic leading-[0.95] tracking-[-0.03em] text-white sm:text-2xl">
+            Build speed. <span className="text-[#ff8a35]">Pick your impact.</span>
           </p>
-          <p className="mx-auto mt-3 max-w-xs text-xs leading-relaxed text-white/60 sm:text-sm">
-            Hold W to launch. Steer with A and D, hit cross traffic hard, then watch the pileup unfold.
+          <p className="mt-2 text-[11px] leading-relaxed text-white/55 sm:text-xs">
+            Hold W to launch. Steer with A and D. Press C to change camera.
           </p>
         </div>
       )}
@@ -835,35 +916,23 @@ export function GameStage() {
         </section>
       )}
 
-      {phase !== 'result' && <aside className={`hud-glass pointer-events-none absolute bottom-4 left-1/2 z-20 flex w-[calc(100%-32px)] max-w-3xl -translate-x-1/2 items-end justify-between rounded-2xl px-3 py-3 transition-opacity sm:bottom-6 sm:px-4 ${drivingLocked ? 'opacity-55' : ''}`}>
-        <div className="pointer-events-auto grid grid-cols-3 gap-2">
-          <span />
-          <button type="button" disabled={drivingLocked} aria-label="Accelerate" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('accelerate')}>▲</button>
-          <span />
-          <button type="button" disabled={drivingLocked} aria-label="Steer left" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('left')}>◀</button>
-          <button type="button" disabled={drivingLocked} aria-label="Brake" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('brake')}>▼</button>
-          <button type="button" disabled={drivingLocked} aria-label="Steer right" className="grid h-12 w-14 select-none place-items-center rounded-xl border border-white/10 bg-white/8 font-mono text-xs font-black text-white/85 shadow-inner transition active:scale-95 active:bg-white/18 disabled:opacity-40 sm:h-14 sm:w-16" {...pointerHandlers('right')}>▶</button>
-        </div>
-
-        <div className="hidden flex-col items-center gap-1 text-center sm:flex">
-          <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/40">Impact window</p>
-          <div className="flex gap-1">
-            {[0, 1, 2, 3, 4, 5, 6].map((bar) => (
-              <span key={bar} className={`h-1.5 w-5 rounded-full ${bar < Math.min(Math.ceil(speed / 14), 7) ? 'bg-[#ff8a35]' : 'bg-white/10'}`} />
-            ))}
+      {phase !== 'result' && (
+        <aside className="hud-glass pointer-events-none absolute right-3 top-1/2 z-20 w-[108px] -translate-y-1/2 rounded-2xl px-3 py-4 sm:right-6 sm:w-[132px] sm:px-4">
+          <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.17em] text-white/45"><Gauge className="h-3 w-3" /> Speed</div>
+          <p className="mt-1 font-mono text-2xl font-black tabular-nums tracking-[-0.07em] sm:text-3xl">
+            {String(speed).padStart(3, '0')}<span className="ml-1 text-[8px] tracking-normal text-white/40">MPH</span>
+          </p>
+          <div className="mt-4 border-t border-white/10 pt-3">
+            <p className="font-mono text-[8px] uppercase tracking-[0.17em] text-white/40">Impact zone</p>
+            <div className="mt-2 grid gap-1">
+              {[0, 1, 2, 3, 4, 5, 6].map((bar) => (
+                <span key={bar} className={`h-1.5 rounded-full transition-colors ${bar < Math.min(Math.ceil(speed / 14), 7) ? 'bg-[#ff8a35] shadow-[0_0_10px_rgb(255_138_53/35%)]' : 'bg-white/10'}`} />
+              ))}
+            </div>
           </div>
-        </div>
-
-        <div className="pointer-events-auto flex items-center gap-3">
-          <div className="text-right">
-            <div className="flex items-center justify-end gap-1.5 font-mono text-[9px] uppercase tracking-[0.17em] text-white/45"><Gauge className="h-3 w-3" /> Speed</div>
-            <p className="font-mono text-2xl font-black tabular-nums tracking-[-0.06em] sm:text-3xl">
-              {String(speed).padStart(3, '0')}<span className="ml-1 text-[9px] tracking-normal text-white/40">MPH</span>
-            </p>
-          </div>
-          <button type="button" disabled={drivingLocked} aria-label="Accelerate" className="relative grid h-20 w-20 select-none place-items-center overflow-hidden rounded-full border-2 border-[#ff9d3e]/60 bg-[#f4772c]/88 font-[var(--font-display)] text-sm font-black uppercase tracking-[0.09em] text-[#17130f] shadow-[0_0_34px_rgb(244_119_44/30%),inset_0_2px_0_rgb(255_255_255/28%)] transition active:scale-95 active:bg-[#ff9a43] disabled:opacity-40 sm:h-24 sm:w-24" {...pointerHandlers('accelerate')}>{phase === 'ready' ? 'Launch' : 'Go'}</button>
-        </div>
-      </aside>}
+          <p className="mt-4 font-mono text-[8px] uppercase leading-relaxed tracking-[0.14em] text-[#72d9dd]/65">Camera<br /><span className="text-white/65">{cameraMode}</span></p>
+        </aside>
+      )}
     </main>
   );
 }
