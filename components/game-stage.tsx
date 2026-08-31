@@ -466,6 +466,7 @@ export function GameStage() {
     const playerAngularVelocity = new THREE.Vector3();
     const cinematicTarget = player.position.clone();
     const impactCameraOffset = new THREE.Vector3(0, 2.2, 4.5);
+    const impactCameraTargetOffset = new THREE.Vector3(0, 0.35, -1.8);
 
     const reset = () => {
       player.position.set(0, CAR_REST_Y, 17);
@@ -478,6 +479,7 @@ export function GameStage() {
       playerVelocity.set(0, 0, 0);
       playerAngularVelocity.set(0, 0, 0);
       impactCameraOffset.set(0, 2.2, 4.5);
+      impactCameraTargetOffset.set(0, 0.35, -1.8);
       playerFrontWheels.forEach((wheel) => {
         wheel.rotation.y = 0;
       });
@@ -647,7 +649,12 @@ export function GameStage() {
 
             if (!playerCrashed) {
               impactCameraOffset.copy(camera.position).sub(player.position);
-              cinematicTarget.copy(player.position);
+              const impactCameraMode = cameraModeRef.current;
+              const impactLookAhead = impactCameraMode === 'near' ? 1.8 : impactCameraMode === 'chase' ? 3.5 : 2.2;
+              const impactTargetHeight = impactCameraMode === 'near' ? 0.35 : impactCameraMode === 'chase' ? 0.65 : 0.2;
+              impactCameraTargetOffset.copy(forward).multiplyScalar(impactLookAhead);
+              impactCameraTargetOffset.y = impactTargetHeight;
+              cinematicTarget.copy(player.position).add(impactCameraTargetOffset);
               playerCrashed = true;
               playerVelocity.copy(forward).multiplyScalar(playerSpeed * 0.56);
               playerVelocity.x -= contact.normal.x * car.speed * 0.18;
@@ -749,10 +756,14 @@ export function GameStage() {
         const cameraModeValue = cameraModeRef.current;
         const cameraDistance = cameraModeValue === 'near' ? 3.5 : cameraModeValue === 'chase' ? 6.2 : 5.2;
         const cameraHeight = cameraModeValue === 'near' ? 1.65 : cameraModeValue === 'chase' ? 3.2 : 8.5;
+        const cameraLookAhead = cameraModeValue === 'near' ? 1.8 : cameraModeValue === 'chase' ? 3.5 : 2.2;
+        const cameraTargetHeight = cameraModeValue === 'near' ? 0.35 : cameraModeValue === 'chase' ? 0.65 : 0.2;
         desiredCamera = player.position.clone().addScaledVector(forward, -cameraDistance);
         desiredCamera.y += cameraHeight;
         camera.position.copy(desiredCamera);
-        camera.lookAt(player.position.x, player.position.y, player.position.z);
+        const cameraTarget = player.position.clone().addScaledVector(forward, cameraLookAhead);
+        cameraTarget.y += cameraTargetHeight;
+        camera.lookAt(cameraTarget);
       } else {
         const crashCenter = player.position.clone();
         let crashCount = 1;
@@ -775,11 +786,13 @@ export function GameStage() {
               : new THREE.Vector3(0, 18.5, 5.5);
         const wideCameraPosition = crashCenter.clone().add(crashOffset);
         desiredCamera = closeFollowPosition.lerp(wideCameraPosition, easedPullback);
-        const closeTarget = player.position.clone();
-        cinematicTarget.copy(closeTarget.lerp(crashCenter, easedPullback));
+        const closeTarget = player.position.clone().add(impactCameraTargetOffset);
+        const wideTarget = crashCenter.clone();
+        wideTarget.y += 0.35;
+        cinematicTarget.copy(closeTarget.lerp(wideTarget, easedPullback));
         const cameraResponsiveness = crashElapsed < 2.8 ? 0.012 : 0.22;
         camera.position.lerp(desiredCamera, 1 - Math.pow(cameraResponsiveness, dt));
-        camera.lookAt(cinematicTarget.x, cinematicTarget.y + 0.35, cinematicTarget.z);
+        camera.lookAt(cinematicTarget);
       }
       if (shake > 0.005) {
         camera.position.x += (Math.random() - 0.5) * shake * 0.55;
