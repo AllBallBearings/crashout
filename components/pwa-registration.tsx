@@ -94,7 +94,7 @@ export function PwaRegistration() {
           <dialog
             open
             aria-label="Install Crashout"
-            className="hud-glass m-0 rounded-2xl border border-white/10 p-4 text-left text-white shadow-[0_20px_70px_rgb(0_0_0/55%)]"
+            className="hud-glass relative m-0 rounded-2xl border border-white/10 p-4 text-left text-white shadow-[0_20px_70px_rgb(0_0_0/55%)]"
           >
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
