@@ -297,7 +297,8 @@ export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
       renderer.xr.enabled = true;
       renderer.xr.setReferenceSpaceType('local-floor');
       await renderer.xr.setSession(session as Parameters<typeof renderer.xr.setSession>[0]);
-      board.scale.setScalar(0.2);
+      // Keep the WebXR board at the same tabletop scale as Quick Look.
+      board.scale.setScalar(0.1);
       xrSessionRef.current = session;
       xrActiveRef.current = true;
       session.addEventListener('end', () => {

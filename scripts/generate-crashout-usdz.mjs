@@ -91,7 +91,12 @@ function makeBoard() {
 }
 
 const scene = new THREE.Scene();
-scene.add(makeBoard());
+const board = makeBoard();
+// Author the Quick Look scene at tabletop scale: a 1.4 m board with cars
+// approximately 15 cm long (about twice Hot Wheels / Matchbox scale).
+board.scale.setScalar(0.1);
+board.position.y = 0.03;
+scene.add(board);
 const exporter = new USDZExporter();
 const buffer = await exporter.parseAsync(scene, {
   quickLookCompatible: true,
