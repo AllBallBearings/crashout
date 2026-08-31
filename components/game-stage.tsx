@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Gauge, HelpCircle, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Camera, Gauge, HelpCircle, RotateCcw } from 'lucide-react';
 import * as THREE from 'three';
 
+import { TabletopPreview } from '@/components/tabletop-preview';
 import { Button } from '@/components/ui/button';
 
 type Controls = {
@@ -31,6 +32,7 @@ type GameRuntime = {
 
 type GamePhase = 'ready' | 'approach' | 'crash' | 'aftermath' | 'result';
 type CameraMode = 'near' | 'chase' | 'overhead';
+type ExperienceMode = 'tabletop' | 'drive';
 
 type VehicleContact = {
   normal: THREE.Vector3;
@@ -166,6 +168,43 @@ function money(value: number) {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function TouchControlButton({
+  label,
+  children,
+  onChange,
+}: {
+  label: string;
+  children: ReactNode;
+  onChange: (active: boolean) => void;
+}) {
+  const [active, setActive] = useState(false);
+
+  const release = useCallback(() => {
+    setActive(false);
+    onChange(false);
+  }, [onChange]);
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      className={`grid size-[58px] touch-none place-items-center rounded-2xl border font-mono text-[10px] font-black uppercase tracking-[0.12em] text-white shadow-[0_10px_30px_rgb(0_0_0/35%)] transition active:translate-y-px ${active ? 'border-[#ffb36b] bg-[#ff9a3e] text-[#1a1007]' : 'border-white/15 bg-[#111821]/90 hover:bg-white/15'}`}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        setActive(true);
+        onChange(true);
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onPointerLeave={release}
+    >
+      {children}
+    </button>
+  );
 }
 
 function makeCar(color: number, player = false) {
@@ -319,6 +358,7 @@ function addRoad(scene: THREE.Scene) {
 
 export function GameStage() {
   const mountRef = useRef<HTMLDivElement>(null);
+  const experienceModeRef = useRef<ExperienceMode>('tabletop');
   const controlsRef = useRef<Controls>({
     accelerate: false,
     brake: false,
@@ -336,6 +376,7 @@ export function GameStage() {
   const [phase, setPhase] = useState<GamePhase>('ready');
   const [cameraMode, setCameraMode] = useState<CameraMode>('near');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [experienceMode, setExperienceMode] = useState<ExperienceMode>('tabletop');
 
   const setControl = useCallback((key: keyof Controls, active: boolean) => {
     controlsRef.current[key] = active;
@@ -356,6 +397,12 @@ export function GameStage() {
     setChain(0);
     setStatus('READY');
   }, []);
+
+  const enterDriveMode = useCallback(() => {
+    resetGame();
+    experienceModeRef.current = 'drive';
+    setExperienceMode('drive');
+  }, [resetGame]);
 
   const toggleCamera = useCallback(() => {
     const nextMode: CameraMode =
@@ -544,6 +591,7 @@ export function GameStage() {
         return;
       }
       if (helpOpenRef.current) return;
+      if (experienceModeRef.current !== 'drive') return;
       if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') setControl('accelerate', true);
       if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') setControl('brake', true);
       if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') setControl('left', true);
@@ -565,7 +613,7 @@ export function GameStage() {
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
       const controls = controlsRef.current;
-      const simulationActive = phaseRef.current !== 'result';
+      const simulationActive = experienceModeRef.current === 'drive' && phaseRef.current !== 'result';
       let forward = forwardFromHeading(playerHeading);
 
       if (simulationActive && !playerCrashed) {
@@ -906,7 +954,7 @@ export function GameStage() {
               <dt className="font-mono font-black text-[#72d9dd]">R</dt><dd className="text-white/70">Restart the run</dd>
             </dl>
             <p className="mt-4 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/40">After impact, steering locks and the camera follows the wreck automatically.</p>
-            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/35">AR mode is not enabled in this crash-only milestone.</p>
+            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/35">AR view is available from the tabletop start screen. iPhone/iPad uses Apple Quick Look.</p>
           </dialog>
         </div>
       )}
@@ -931,8 +979,29 @@ export function GameStage() {
             Build speed. <span className="text-[#ff8a35]">Pick your impact.</span>
           </p>
           <p className="mt-2 text-[11px] leading-relaxed text-white/55 sm:text-xs">
-            Hold W to launch. Steer with A and D. Press C to change camera.
+            Hold W or the throttle to launch. Steer with A / D or the wheel buttons. Press C to change camera.
           </p>
+        </div>
+      )}
+
+      {experienceMode === 'drive' && phase !== 'result' && (
+        <div className="touch-controls pointer-events-none absolute inset-x-0 bottom-4 z-20 items-end justify-between px-4 sm:bottom-6 sm:px-6">
+          <div className="pointer-events-auto flex gap-2">
+            <TouchControlButton label="Steer left" onChange={(active) => setControl('left', active)}>
+              <ArrowLeft className="size-6" />
+            </TouchControlButton>
+            <TouchControlButton label="Steer right" onChange={(active) => setControl('right', active)}>
+              <ArrowRight className="size-6" />
+            </TouchControlButton>
+          </div>
+          <div className="pointer-events-auto flex flex-col gap-2">
+            <TouchControlButton label="Accelerate" onChange={(active) => setControl('accelerate', active)}>
+              <ArrowUp className="size-6" />
+            </TouchControlButton>
+            <TouchControlButton label="Brake" onChange={(active) => setControl('brake', active)}>
+              <ArrowDown className="size-6" />
+            </TouchControlButton>
+          </div>
         </div>
       )}
 
@@ -978,6 +1047,8 @@ export function GameStage() {
           <p className="mt-4 font-mono text-[8px] uppercase leading-relaxed tracking-[0.14em] text-[#72d9dd]/65">Camera<br /><span className="text-white/65">{cameraMode}</span></p>
         </aside>
       )}
+
+      {experienceMode === 'tabletop' && <TabletopPreview onEnterDriveMode={enterDriveMode} />}
     </main>
   );
 }

@@ -1,6 +1,11 @@
 const CACHE_NAME = 'crashout-shell-v1';
 const BASE_PATH = new URL(self.registration.scope).pathname;
-const APP_SHELL = [BASE_PATH, `${BASE_PATH}favicon.svg`, `${BASE_PATH}manifest.webmanifest`];
+const APP_SHELL = [
+  BASE_PATH,
+  `${BASE_PATH}favicon.svg`,
+  `${BASE_PATH}manifest.webmanifest`,
+  `${BASE_PATH}crashout-board.usdz`,
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

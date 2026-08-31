@@ -88,7 +88,7 @@ export function PwaRegistration() {
   if (installed) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex justify-end sm:bottom-6 sm:right-6">
+    <div className="pwa-install-anchor pointer-events-none fixed bottom-4 right-4 z-40 flex justify-end sm:bottom-6 sm:right-6">
       <div className="pointer-events-auto flex w-auto max-w-[calc(100vw-2rem)] flex-col items-stretch gap-2">
         {showGuide && (
           <dialog
