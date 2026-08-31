@@ -39,6 +39,13 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
 
+      - name: Flatten project assets for Pages
+        run: |
+          if [ -d dist/client/crashout ]; then
+            mv dist/client/crashout/_next dist/client/_next
+            rmdir dist/client/crashout
+          fi
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
