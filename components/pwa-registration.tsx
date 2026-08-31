@@ -88,8 +88,8 @@ export function PwaRegistration() {
   if (installed) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:justify-end sm:px-6">
-      <div className="pointer-events-auto flex w-full max-w-[360px] flex-col items-stretch gap-2">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex justify-end sm:bottom-6 sm:right-6">
+      <div className="pointer-events-auto flex w-auto max-w-[calc(100vw-2rem)] flex-col items-stretch gap-2">
         {showGuide && (
           <dialog
             open
@@ -128,7 +128,7 @@ export function PwaRegistration() {
         <button
           type="button"
           onClick={handleInstall}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#ff9a3e]/60 bg-[#ff9a3e] px-4 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-[#1a1007] shadow-[0_12px_40px_rgb(0_0_0/38%)] transition hover:bg-[#ffb46b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcf9f] active:translate-y-px"
+          className="inline-flex h-11 min-w-[148px] items-center justify-center gap-2 rounded-xl border border-[#ff9a3e]/60 bg-[#ff9a3e] px-4 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-[#1a1007] shadow-[0_12px_40px_rgb(0_0_0/38%)] transition hover:bg-[#ffb46b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcf9f] active:translate-y-px"
         >
           <Download className="size-4" />
           Install app
