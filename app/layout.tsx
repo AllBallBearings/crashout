@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { PwaRegistration } from '@/components/pwa-registration';
 import './globals.css';
 
+const appBasePath = process.env.GITHUB_PAGES === 'true' ? '/crashout' : '';
+
 export const metadata: Metadata = {
   title: 'Crashout — Tabletop Crash Game',
   description:
@@ -13,8 +15,8 @@ export const metadata: Metadata = {
     title: 'Crashout',
   },
   icons: {
-    icon: '/favicon.svg',
-    apple: '/favicon.svg',
+    icon: `${appBasePath}/favicon.svg`,
+    apple: `${appBasePath}/favicon.svg`,
   },
 };
 
@@ -31,6 +33,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="manifest" href={`${appBasePath}/manifest.webmanifest`} />
+      </head>
       <body>
         {children}
         <PwaRegistration />

@@ -6,7 +6,8 @@ export function PwaRegistration() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const register = () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
+      const appBasePath = window.location.pathname.startsWith('/crashout/') ? '/crashout' : '';
+      navigator.serviceWorker.register(`${appBasePath}/sw.js`, { scope: `${appBasePath || ''}/` }).catch(() => {
         // The game remains playable online if registration is unavailable.
       });
     };
