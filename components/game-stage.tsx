@@ -906,6 +906,7 @@ export function GameStage() {
               <dt className="font-mono font-black text-[#72d9dd]">R</dt><dd className="text-white/70">Restart the run</dd>
             </dl>
             <p className="mt-4 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/40">After impact, steering locks and the camera follows the wreck automatically.</p>
+            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/35">AR mode is not enabled in this crash-only milestone.</p>
           </dialog>
         </div>
       )}
