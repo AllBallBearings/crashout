@@ -638,14 +638,20 @@ export function GameStage() {
           }
 
           const contact = resolveVehicleOverlap(player, car.mesh, car.crashed ? 0.5 : 0.68);
-          const playerImpactSpeed = playerCrashed ? playerVelocity.length() : playerSpeed;
-          if (contact && !car.hit && playerImpactSpeed > 2.1) {
-            const impact = playerImpactSpeed + car.speed * 0.72;
-            const impulse = playerCrashed
-              ? playerVelocity.clone().multiplyScalar(0.64)
-              : forward.clone().multiplyScalar(playerSpeed * 0.62);
-            impulse.x += car.direction * car.speed * 0.38;
-            crashCar(car, impact, impulse);
+          const trafficMotion = car.crashed
+            ? car.velocity.clone()
+            : new THREE.Vector3(car.direction * car.speed, 0, 0);
+          const playerMotion = playerCrashed ? playerVelocity.clone() : forward.clone().multiplyScalar(playerSpeed);
+          const closingSpeed = playerMotion.clone().sub(trafficMotion).dot(contact?.normal ?? new THREE.Vector3());
+          const playerSpeedMagnitude = playerMotion.length();
+          const trafficSpeedMagnitude = trafficMotion.length();
+          const impactSpeed = Math.max(playerSpeedMagnitude, trafficSpeedMagnitude);
+          const movingTrafficCanHit = car.crashed ? trafficSpeedMagnitude > 1.4 : !car.hit;
+          if (contact && movingTrafficCanHit && impactSpeed > 2.1 && closingSpeed > 0.2) {
+            const impact = Math.max(2.4, closingSpeed * 0.92 + impactSpeed * 0.42);
+            const impulse = playerMotion.clone().multiplyScalar(0.58).addScaledVector(trafficMotion, 0.42);
+            impulse.addScaledVector(contact.normal, -Math.min(closingSpeed, 12) * 0.1);
+            if (!car.crashed) crashCar(car, impact, impulse);
 
             if (!playerCrashed) {
               impactCameraOffset.copy(camera.position).sub(player.position);
@@ -656,9 +662,8 @@ export function GameStage() {
               impactCameraTargetOffset.y = impactTargetHeight;
               cinematicTarget.copy(player.position).add(impactCameraTargetOffset);
               playerCrashed = true;
-              playerVelocity.copy(forward).multiplyScalar(playerSpeed * 0.56);
-              playerVelocity.x -= contact.normal.x * car.speed * 0.18;
-              playerVelocity.z -= contact.normal.z * car.speed * 0.18;
+              playerVelocity.copy(playerMotion).multiplyScalar(0.28).addScaledVector(trafficMotion, 0.62);
+              playerVelocity.addScaledVector(contact.normal, -Math.min(closingSpeed, 12) * 0.12);
               playerVelocity.y = THREE.MathUtils.clamp(impact * 0.045, 0.65, 2.2);
               const rollImpulse = Math.min(impact * 0.055, 1.65);
               playerAngularVelocity.set(
@@ -673,7 +678,13 @@ export function GameStage() {
               setStatus('INITIAL IMPACT');
               controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
             } else {
-              playerVelocity.multiplyScalar(0.72);
+              playerVelocity.multiplyScalar(0.78);
+              playerVelocity.addScaledVector(contact.normal, -Math.min(closingSpeed, 12) * 0.2);
+              playerAngularVelocity.add(
+                new THREE.Vector3(contact.normal.z, contact.normal.x * 0.35, -contact.normal.x).multiplyScalar(
+                  Math.min(impact * 0.035, 0.55),
+                ),
+              );
             }
           } else if (contact && playerCrashed && car.crashed) {
             const normal = contact.normal;
