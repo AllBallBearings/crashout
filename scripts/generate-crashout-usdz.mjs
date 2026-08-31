@@ -97,6 +97,9 @@ const board = makeBoard();
 board.scale.setScalar(0.1);
 board.position.y = 0.03;
 scene.add(board);
+// USDZExporter reads each object's world matrix; update it explicitly because
+// this build runs without a renderer frame to perform the usual scene update.
+scene.updateMatrixWorld(true);
 const exporter = new USDZExporter();
 const buffer = await exporter.parseAsync(scene, {
   quickLookCompatible: true,
