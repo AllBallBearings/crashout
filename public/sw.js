@@ -1,10 +1,11 @@
-const CACHE_NAME = 'crashout-shell-v1';
+const CACHE_NAME = 'crashout-shell-v2';
 const BASE_PATH = new URL(self.registration.scope).pathname;
+const AR_ASSET_REVISION = '2';
 const APP_SHELL = [
   BASE_PATH,
   `${BASE_PATH}favicon.svg`,
   `${BASE_PATH}manifest.webmanifest`,
-  `${BASE_PATH}crashout-board.usdz`,
+  `${BASE_PATH}crashout-board.usdz?rev=${AR_ASSET_REVISION}`,
 ];
 
 self.addEventListener('install', (event) => {

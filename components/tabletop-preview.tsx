@@ -18,6 +18,8 @@ type XrSystemLike = {
   requestSession: (mode: 'immersive-ar', options?: Record<string, unknown>) => Promise<XrSessionLike>;
 };
 
+const AR_ASSET_URL = './crashout-board.usdz?rev=2';
+
 function makeMiniCar(color: number, position: [number, number], heading: number) {
   const group = new THREE.Group();
   const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.36, metalness: 0.42 });
@@ -342,7 +344,7 @@ export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
           {/* oxlint-disable-next-line next/no-html-link-for-pages */}
           <a
             rel="ar"
-            href="./crashout-board.usdz"
+            href={AR_ASSET_URL}
             className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-[#72d9dd]/60 bg-[#72d9dd] px-4 font-mono text-[11px] font-black uppercase tracking-[0.14em] text-[#071214] shadow-[0_12px_40px_rgb(0_0_0/38%)] transition hover:bg-[#a1eef0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d7ffff]"
           >
             {/* oxlint-disable-next-line next/no-img-element */}
@@ -370,7 +372,7 @@ export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
         </div>
         <div className="flex items-center gap-2 text-center font-mono text-[9px] uppercase tracking-[0.15em] text-white/35">
           <Smartphone className="size-3" />
-          <span>AR VIEW uses Apple Quick Look on iPhone/iPad · Drive mode has touch controls</span>
+          <span>AR VIEW places a static board preview · close it to return · Drive mode has touch controls</span>
         </div>
         {arMessage && <p className="max-w-xl text-center text-xs text-[#ffb46b]">{arMessage}</p>}
       </div>
