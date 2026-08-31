@@ -641,8 +641,14 @@ export function GameStage() {
           const trafficMotion = car.crashed
             ? car.velocity.clone()
             : new THREE.Vector3(car.direction * car.speed, 0, 0);
+          const contactNormal = contact?.normal.clone() ?? new THREE.Vector3();
+          if (contact && Math.abs(contactNormal.y) > 0.55) {
+            contactNormal.set(car.mesh.position.x - player.position.x, 0, car.mesh.position.z - player.position.z);
+            if (contactNormal.lengthSq() < 0.04) contactNormal.copy(trafficMotion).multiplyScalar(-1);
+            if (contactNormal.lengthSq() > 0.0001) contactNormal.normalize();
+          }
           const playerMotion = playerCrashed ? playerVelocity.clone() : forward.clone().multiplyScalar(playerSpeed);
-          const closingSpeed = playerMotion.clone().sub(trafficMotion).dot(contact?.normal ?? new THREE.Vector3());
+          const closingSpeed = playerMotion.clone().sub(trafficMotion).dot(contactNormal);
           const playerSpeedMagnitude = playerMotion.length();
           const trafficSpeedMagnitude = trafficMotion.length();
           const impactSpeed = Math.max(playerSpeedMagnitude, trafficSpeedMagnitude);
@@ -650,7 +656,7 @@ export function GameStage() {
           if (contact && movingTrafficCanHit && impactSpeed > 2.1 && closingSpeed > 0.2) {
             const impact = Math.max(2.4, closingSpeed * 0.92 + impactSpeed * 0.42);
             const impulse = playerMotion.clone().multiplyScalar(0.58).addScaledVector(trafficMotion, 0.42);
-            impulse.addScaledVector(contact.normal, -Math.min(closingSpeed, 12) * 0.1);
+            impulse.addScaledVector(contactNormal, -Math.min(closingSpeed, 12) * 0.1);
             if (!car.crashed) crashCar(car, impact, impulse);
 
             if (!playerCrashed) {
@@ -663,13 +669,13 @@ export function GameStage() {
               cinematicTarget.copy(player.position).add(impactCameraTargetOffset);
               playerCrashed = true;
               playerVelocity.copy(playerMotion).multiplyScalar(0.28).addScaledVector(trafficMotion, 0.62);
-              playerVelocity.addScaledVector(contact.normal, -Math.min(closingSpeed, 12) * 0.12);
+              playerVelocity.addScaledVector(contactNormal, -Math.min(closingSpeed, 12) * 0.12);
               playerVelocity.y = THREE.MathUtils.clamp(impact * 0.045, 0.65, 2.2);
               const rollImpulse = Math.min(impact * 0.055, 1.65);
               playerAngularVelocity.set(
-                contact.normal.z * rollImpulse,
-                (contact.normal.x * 0.5 + car.direction * 0.3) * rollImpulse,
-                -contact.normal.x * rollImpulse,
+                contactNormal.z * rollImpulse,
+                (contactNormal.x * 0.5 + car.direction * 0.3) * rollImpulse,
+                -contactNormal.x * rollImpulse,
               );
               playerSpeed = 0;
               crashStartedAt = now;
@@ -679,20 +685,23 @@ export function GameStage() {
               controlsRef.current = { accelerate: false, brake: false, left: false, right: false };
             } else {
               playerVelocity.multiplyScalar(0.78);
-              playerVelocity.addScaledVector(contact.normal, -Math.min(closingSpeed, 12) * 0.2);
+              playerVelocity.addScaledVector(contactNormal, -Math.min(closingSpeed, 12) * 0.2);
               playerAngularVelocity.add(
-                new THREE.Vector3(contact.normal.z, contact.normal.x * 0.35, -contact.normal.x).multiplyScalar(
+                new THREE.Vector3(contactNormal.z, contactNormal.x * 0.35, -contactNormal.x).multiplyScalar(
                   Math.min(impact * 0.035, 0.55),
                 ),
               );
             }
           } else if (contact && playerCrashed && car.crashed) {
-            const normal = contact.normal;
-            const closingSpeed = playerVelocity.clone().sub(car.velocity).dot(normal);
-            if (closingSpeed > 0) {
-              playerVelocity.addScaledVector(normal, -closingSpeed * 0.58);
-              car.velocity.addScaledVector(normal, closingSpeed * 0.58);
-              playerAngularVelocity.add(new THREE.Vector3(normal.z, normal.x * 0.35, -normal.x).multiplyScalar(closingSpeed * 0.045));
+            const wreckClosingSpeed = playerVelocity.clone().sub(car.velocity).dot(contactNormal);
+            if (wreckClosingSpeed > 0) {
+              playerVelocity.addScaledVector(contactNormal, -wreckClosingSpeed * 0.58);
+              car.velocity.addScaledVector(contactNormal, wreckClosingSpeed * 0.58);
+              playerAngularVelocity.add(
+                new THREE.Vector3(contactNormal.z, contactNormal.x * 0.35, -contactNormal.x).multiplyScalar(
+                  wreckClosingSpeed * 0.045,
+                ),
+              );
             }
           }
         }
