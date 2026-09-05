@@ -1,45 +1,37 @@
 import type { Metadata, Viewport } from 'next';
-import { PwaRegistration } from '@/components/pwa-registration';
 import './globals.css';
 
-const appBasePath = process.env.GITHUB_PAGES === 'true' ? '/crashout' : '';
-
 export const metadata: Metadata = {
-  title: 'Crashout — Tabletop Crash Game',
+  metadataBase: new URL('https://crashout-junction.thegools.chatgpt.site'),
+  title: 'Crashout — One Driver. Total Chaos.',
   description:
-    'Thread the gap, hit the junction, and turn one impact into a spectacular chain reaction.',
+    'Crashout is a shared tabletop crash game for iPhone and iPad. Drive into live traffic and build the biggest chain reaction.',
   applicationName: 'Crashout',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'Crashout',
+  openGraph: {
+    title: 'Crashout — One Driver. Total Chaos.',
+    description: 'A shared tabletop crash game for iPhone and iPad.',
+    type: 'website',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Crashout tabletop crash game' }],
   },
-  icons: {
-    icon: `${appBasePath}/favicon.svg`,
-    apple: `${appBasePath}/favicon.svg`,
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Crashout — One Driver. Total Chaos.',
+    description: 'A shared tabletop crash game for iPhone and iPad.',
+    images: ['/og.png'],
   },
+  icons: { icon: '/favicon.svg' },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: '#07090d',
+  themeColor: '#f3efe4',
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <head>
-        <link rel="manifest" href={`${appBasePath}/manifest.webmanifest`} />
-      </head>
-      <body>
-        {children}
-        <PwaRegistration />
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

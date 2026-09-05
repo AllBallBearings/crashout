@@ -37,3 +37,16 @@ next-env.d.ts
 /outputs/
 /work/
 /public/crashout-board.usdz
+
+# Unity generated state
+/Unity/[Ll]ibrary/
+/Unity/[Tt]emp/
+/Unity/[Oo]bj/
+/Unity/[Bb]uild/
+/Unity/[Bb]uilds/
+/Unity/[Ll]ogs/
+/Unity/[Uu]ser[Ss]ettings/
+/Unity/MemoryCaptures/
+/Unity/Recordings/
+*.csproj
+*.sln
