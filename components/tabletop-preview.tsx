@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 type TabletopPreviewProps = {
+  onEnterTabletopMode: () => void;
   onEnterDriveMode: () => void;
 };
 
@@ -122,7 +123,7 @@ function makeTabletopBoard() {
   return board;
 }
 
-export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
+export function TabletopPreview({ onEnterTabletopMode, onEnterDriveMode }: TabletopPreviewProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -313,7 +314,7 @@ export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
       });
       renderer.setAnimationLoop(() => renderer.render(scene, camera));
       setArStatus('active');
-      setArMessage('AR view active. Walk around the board from a distance.');
+      setArMessage('Placement preview active. Close it and choose Live tabletop for the interactive simulation.');
     } catch {
       setArStatus('error');
       setArMessage('AR could not start here. Use AR VIEW on iPhone/iPad or continue with the tabletop preview.');
@@ -327,9 +328,9 @@ export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-4 sm:p-6">
         <div className="hud-glass pointer-events-auto rounded-xl px-4 py-3 sm:px-5">
-          <p className="font-mono text-[9px] font-bold uppercase tracking-[0.25em] text-[#72d9dd]">Crashout / tabletop</p>
-          <h1 className="mt-1 font-[var(--font-display)] text-2xl font-black uppercase italic tracking-[-0.04em] text-white sm:text-4xl">Place the junction.</h1>
-          <p className="mt-2 max-w-sm text-xs leading-relaxed text-white/55 sm:text-sm">Preview the crash board in 3D, place it in your space, or jump straight into the drive.</p>
+          <p className="font-mono text-[9px] font-bold uppercase tracking-[0.25em] text-[#72d9dd]">Crashout / launch</p>
+          <h1 className="mt-1 font-[var(--font-display)] text-2xl font-black uppercase italic tracking-[-0.04em] text-white sm:text-4xl">Choose your view.</h1>
+          <p className="mt-2 max-w-sm text-xs leading-relaxed text-white/55 sm:text-sm">Live tabletop and Drive camera share one simulation. AR VIEW places a static board in your space.</p>
         </div>
         <div className="hud-glass pointer-events-auto hidden items-center gap-2 rounded-xl px-3 py-2.5 sm:flex">
           <RotateCcw className="size-3.5 text-[#72d9dd]" />
@@ -358,21 +359,29 @@ export function TabletopPreview({ onEnterDriveMode }: TabletopPreviewProps) {
               className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#72d9dd]/70"
             >
               <Camera className="size-4" />
-              {arStatus === 'active' ? 'Exit WebXR' : arStatus === 'starting' ? 'Starting AR…' : 'Try WebXR'}
+              {arStatus === 'active' ? 'Exit WebXR' : arStatus === 'starting' ? 'Starting AR…' : 'AR placement preview'}
             </button>
           )}
           <button
             type="button"
-            onClick={onEnterDriveMode}
+            onClick={onEnterTabletopMode}
             className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-[#ff9a3e]/70 bg-[#ff9a3e] px-4 font-mono text-[11px] font-black uppercase tracking-[0.14em] text-[#1d1108] shadow-[0_12px_40px_rgb(0_0_0/38%)] transition hover:bg-[#ffb36b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd0a3]"
           >
-            Drive mode
+            Live tabletop
+            <ArrowRight className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onEnterDriveMode}
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-white shadow-[0_12px_40px_rgb(0_0_0/28%)] transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff9a3e]/70"
+          >
+            Drive camera
             <ArrowRight className="size-4" />
           </button>
         </div>
         <div className="flex items-center gap-2 text-center font-mono text-[9px] uppercase tracking-[0.15em] text-white/35">
           <Smartphone className="size-3" />
-          <span>AR VIEW places a static board preview · close it to return · Drive mode has touch controls</span>
+          <span>AR VIEW is a static placement preview · Live tabletop and Drive camera share one simulation</span>
         </div>
         {arMessage && <p className="max-w-xl text-center text-xs text-[#ffb46b]">{arMessage}</p>}
       </div>

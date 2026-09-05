@@ -31,8 +31,8 @@ type GameRuntime = {
 };
 
 type GamePhase = 'ready' | 'approach' | 'crash' | 'aftermath' | 'result';
-type CameraMode = 'near' | 'chase' | 'overhead';
-type ExperienceMode = 'tabletop' | 'drive';
+type CameraMode = 'tabletop' | 'near' | 'chase' | 'overhead';
+type ExperienceMode = 'preview' | 'tabletop' | 'drive';
 
 type VehicleContact = {
   normal: THREE.Vector3;
@@ -358,7 +358,7 @@ function addRoad(scene: THREE.Scene) {
 
 export function GameStage() {
   const mountRef = useRef<HTMLDivElement>(null);
-  const experienceModeRef = useRef<ExperienceMode>('tabletop');
+  const experienceModeRef = useRef<ExperienceMode>('preview');
   const controlsRef = useRef<Controls>({
     accelerate: false,
     brake: false,
@@ -367,16 +367,16 @@ export function GameStage() {
   });
   const runtimeRef = useRef<GameRuntime | null>(null);
   const phaseRef = useRef<GamePhase>('ready');
-  const cameraModeRef = useRef<CameraMode>('near');
+  const cameraModeRef = useRef<CameraMode>('tabletop');
   const helpOpenRef = useRef(false);
   const [score, setScore] = useState(0);
   const [speed, setSpeed] = useState(0);
   const [chain, setChain] = useState(0);
   const [status, setStatus] = useState('READY');
   const [phase, setPhase] = useState<GamePhase>('ready');
-  const [cameraMode, setCameraMode] = useState<CameraMode>('near');
+  const [cameraMode, setCameraMode] = useState<CameraMode>('tabletop');
   const [helpOpen, setHelpOpen] = useState(false);
-  const [experienceMode, setExperienceMode] = useState<ExperienceMode>('tabletop');
+  const [experienceMode, setExperienceMode] = useState<ExperienceMode>('preview');
 
   const setControl = useCallback((key: keyof Controls, active: boolean) => {
     controlsRef.current[key] = active;
@@ -398,19 +398,31 @@ export function GameStage() {
     setStatus('READY');
   }, []);
 
+  const enterTabletopMode = useCallback(() => {
+    resetGame();
+    experienceModeRef.current = 'tabletop';
+    cameraModeRef.current = 'tabletop';
+    setCameraMode('tabletop');
+    setExperienceMode('tabletop');
+  }, [resetGame]);
+
   const enterDriveMode = useCallback(() => {
     resetGame();
     experienceModeRef.current = 'drive';
+    cameraModeRef.current = 'near';
+    setCameraMode('near');
     setExperienceMode('drive');
   }, [resetGame]);
 
   const toggleCamera = useCallback(() => {
     const nextMode: CameraMode =
-      cameraModeRef.current === 'near'
+      cameraModeRef.current === 'tabletop'
+        ? 'near'
+        : cameraModeRef.current === 'near'
         ? 'chase'
         : cameraModeRef.current === 'chase'
           ? 'overhead'
-          : 'near';
+          : 'tabletop';
     cameraModeRef.current = nextMode;
     setCameraMode(nextMode);
   }, []);
@@ -591,7 +603,7 @@ export function GameStage() {
         return;
       }
       if (helpOpenRef.current) return;
-      if (experienceModeRef.current !== 'drive') return;
+      if (experienceModeRef.current === 'preview') return;
       if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') setControl('accelerate', true);
       if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') setControl('brake', true);
       if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') setControl('left', true);
@@ -613,7 +625,7 @@ export function GameStage() {
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
       const controls = controlsRef.current;
-      const simulationActive = experienceModeRef.current === 'drive' && phaseRef.current !== 'result';
+      const simulationActive = experienceModeRef.current !== 'preview' && phaseRef.current !== 'result';
       let forward = forwardFromHeading(playerHeading);
 
       if (simulationActive && !playerCrashed) {
@@ -710,8 +722,10 @@ export function GameStage() {
             if (!playerCrashed) {
               impactCameraOffset.copy(camera.position).sub(player.position);
               const impactCameraMode = cameraModeRef.current;
-              const impactLookAhead = impactCameraMode === 'near' ? 1.8 : impactCameraMode === 'chase' ? 3.5 : 2.2;
-              const impactTargetHeight = impactCameraMode === 'near' ? 0.35 : impactCameraMode === 'chase' ? 0.65 : 0.2;
+              const impactLookAhead =
+                impactCameraMode === 'tabletop' ? 0 : impactCameraMode === 'near' ? 1.8 : impactCameraMode === 'chase' ? 3.5 : 2.2;
+              const impactTargetHeight =
+                impactCameraMode === 'tabletop' ? 0.35 : impactCameraMode === 'near' ? 0.35 : impactCameraMode === 'chase' ? 0.65 : 0.2;
               impactCameraTargetOffset.copy(forward).multiplyScalar(impactLookAhead);
               impactCameraTargetOffset.y = impactTargetHeight;
               cinematicTarget.copy(player.position).add(impactCameraTargetOffset);
@@ -822,16 +836,22 @@ export function GameStage() {
       let desiredCamera: THREE.Vector3;
       if (!playerCrashed) {
         const cameraModeValue = cameraModeRef.current;
-        const cameraDistance = cameraModeValue === 'near' ? 3.5 : cameraModeValue === 'chase' ? 6.2 : 5.2;
-        const cameraHeight = cameraModeValue === 'near' ? 1.65 : cameraModeValue === 'chase' ? 3.2 : 8.5;
-        const cameraLookAhead = cameraModeValue === 'near' ? 1.8 : cameraModeValue === 'chase' ? 3.5 : 2.2;
-        const cameraTargetHeight = cameraModeValue === 'near' ? 0.35 : cameraModeValue === 'chase' ? 0.65 : 0.2;
-        desiredCamera = player.position.clone().addScaledVector(forward, -cameraDistance);
-        desiredCamera.y += cameraHeight;
-        camera.position.copy(desiredCamera);
-        const cameraTarget = player.position.clone().addScaledVector(forward, cameraLookAhead);
-        cameraTarget.y += cameraTargetHeight;
-        camera.lookAt(cameraTarget);
+        if (cameraModeValue === 'tabletop') {
+          desiredCamera = new THREE.Vector3(0, 34, 30);
+          camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt));
+          camera.lookAt(0, 0, 0);
+        } else {
+          const cameraDistance = cameraModeValue === 'near' ? 3.5 : cameraModeValue === 'chase' ? 6.2 : 5.2;
+          const cameraHeight = cameraModeValue === 'near' ? 1.65 : cameraModeValue === 'chase' ? 3.2 : 8.5;
+          const cameraLookAhead = cameraModeValue === 'near' ? 1.8 : cameraModeValue === 'chase' ? 3.5 : 2.2;
+          const cameraTargetHeight = cameraModeValue === 'near' ? 0.35 : cameraModeValue === 'chase' ? 0.65 : 0.2;
+          desiredCamera = player.position.clone().addScaledVector(forward, -cameraDistance);
+          desiredCamera.y += cameraHeight;
+          camera.position.copy(desiredCamera);
+          const cameraTarget = player.position.clone().addScaledVector(forward, cameraLookAhead);
+          cameraTarget.y += cameraTargetHeight;
+          camera.lookAt(cameraTarget);
+        }
       } else {
         const crashCenter = player.position.clone();
         let crashCount = 1;
@@ -847,11 +867,13 @@ export function GameStage() {
         const easedPullback = pullbackProgress * pullbackProgress * (3 - 2 * pullbackProgress);
         const cameraModeValue = cameraModeRef.current;
         const crashOffset =
-          cameraModeValue === 'near'
-            ? new THREE.Vector3(6.8, 5.4, 7.8)
-            : cameraModeValue === 'chase'
-              ? new THREE.Vector3(10.5, 11.5, 12.5)
-              : new THREE.Vector3(0, 18.5, 5.5);
+          cameraModeValue === 'tabletop'
+            ? new THREE.Vector3(0, 30, 26)
+            : cameraModeValue === 'near'
+              ? new THREE.Vector3(6.8, 5.4, 7.8)
+              : cameraModeValue === 'chase'
+                ? new THREE.Vector3(10.5, 11.5, 12.5)
+                : new THREE.Vector3(0, 18.5, 5.5);
         const wideCameraPosition = crashCenter.clone().add(crashOffset);
         desiredCamera = closeFollowPosition.lerp(wideCameraPosition, easedPullback);
         const closeTarget = player.position.clone().add(impactCameraTargetOffset);
@@ -950,11 +972,11 @@ export function GameStage() {
               <dt className="font-mono font-black text-[#ff9a3e]">W / ↑</dt><dd className="text-white/70">Accelerate forward</dd>
               <dt className="font-mono font-black text-[#ff9a3e]">S / ↓</dt><dd className="text-white/70">Brake</dd>
               <dt className="font-mono font-black text-[#ff9a3e]">A D / ← →</dt><dd className="text-white/70">Steer the front wheels</dd>
-              <dt className="font-mono font-black text-[#72d9dd]">C</dt><dd className="text-white/70">Cycle near, chase, and overhead cameras</dd>
+              <dt className="font-mono font-black text-[#72d9dd]">C</dt><dd className="text-white/70">Cycle tabletop, near, chase, and overhead cameras</dd>
               <dt className="font-mono font-black text-[#72d9dd]">R</dt><dd className="text-white/70">Restart the run</dd>
             </dl>
             <p className="mt-4 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/40">After impact, steering locks and the camera follows the wreck automatically.</p>
-            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/35">AR view is available from the tabletop start screen. iPhone/iPad uses Apple Quick Look.</p>
+            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[10px] uppercase leading-relaxed tracking-[0.15em] text-white/35">Live tabletop is the same simulation from a board-game camera. AR VIEW is a static Apple Quick Look placement preview.</p>
           </dialog>
         </div>
       )}
@@ -979,12 +1001,12 @@ export function GameStage() {
             Build speed. <span className="text-[#ff8a35]">Pick your impact.</span>
           </p>
           <p className="mt-2 text-[11px] leading-relaxed text-white/55 sm:text-xs">
-            Hold W or the throttle to launch. Steer with A / D or the wheel buttons. Press C to change camera.
+            Hold W or the throttle to launch. Steer with A / D or the wheel buttons. Press C to switch tabletop and car cameras.
           </p>
         </div>
       )}
 
-      {experienceMode === 'drive' && phase !== 'result' && (
+      {(experienceMode === 'tabletop' || experienceMode === 'drive') && phase !== 'result' && (
         <div className="touch-controls pointer-events-none absolute inset-x-0 bottom-4 z-20 items-end justify-between px-4 sm:bottom-6 sm:px-6">
           <div className="pointer-events-auto flex gap-2">
             <TouchControlButton label="Steer left" onChange={(active) => setControl('left', active)}>
@@ -1048,7 +1070,9 @@ export function GameStage() {
         </aside>
       )}
 
-      {experienceMode === 'tabletop' && <TabletopPreview onEnterDriveMode={enterDriveMode} />}
+      {experienceMode === 'preview' && (
+        <TabletopPreview onEnterTabletopMode={enterTabletopMode} onEnterDriveMode={enterDriveMode} />
+      )}
     </main>
   );
 }
