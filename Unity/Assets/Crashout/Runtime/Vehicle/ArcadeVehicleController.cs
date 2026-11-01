@@ -28,10 +28,13 @@ namespace Crashout.Vehicle
         private Transform[] wheelRollPivots;
         private float steeringVisual;
         private bool propulsionEnabled = true;
+        private float boostMeter = 1f;
 
         public Rigidbody Body => body;
         public float SpeedMetresPerSecond => body == null ? 0f : body.linearVelocity.magnitude;
         public bool PropulsionEnabled => propulsionEnabled;
+        public float BoostFraction => boostMeter;
+        public bool IsBoosting { get; private set; }
 
         private void Awake()
         {
@@ -54,6 +57,8 @@ namespace Crashout.Vehicle
         {
             propulsionEnabled = true;
             steeringVisual = 0f;
+            boostMeter = 1f;
+            IsBoosting = false;
         }
 
         public void StepAuthority(DriverInputCommand command)
@@ -65,11 +70,15 @@ namespace Crashout.Vehicle
             float lateralSpeed = Vector3.Dot(body.linearVelocity, transform.right);
             body.AddForce(-transform.right * lateralSpeed * lateralGrip * body.mass, ForceMode.Force);
 
+            IsBoosting = propulsionEnabled && command.Boost && command.Throttle > 0f && boostMeter > 0.01f;
+            if (IsBoosting) boostMeter = Mathf.Max(0f, boostMeter - Time.fixedDeltaTime / 3.2f);
+            float speedLimit = IsBoosting ? maximumSpeed * 1.45f : maximumSpeed;
+
             if (propulsionEnabled)
             {
-                if (command.Throttle > 0f && forwardSpeed < maximumSpeed)
+                if (command.Throttle > 0f && forwardSpeed < speedLimit)
                 {
-                    body.AddForce(transform.forward * (command.Throttle * motorForce), ForceMode.Force);
+                    body.AddForce(transform.forward * (command.Throttle * motorForce * (IsBoosting ? 2.1f : 1f)), ForceMode.Force);
                 }
 
                 if (command.Brake > 0f)

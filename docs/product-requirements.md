@@ -510,7 +510,7 @@ At the end of a turn, all devices show the same result. The next player receives
 
 ### Game Runtime
 
-- Current validated Unity 6 LTS release at project start.
+- Unity 6.3 LTS (`6000.3.27f2`), pinned to the latest LTS offered by Unity Hub on October 31, 2026. This replaces the previous Unity 6.6 target. Editor import, package and serialized-settings compatibility, compilation, and iOS device validation are required before this target is considered validated.
 - C sharp.
 - Universal Render Pipeline.
 - Unity Input System.

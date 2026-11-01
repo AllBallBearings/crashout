@@ -13,23 +13,27 @@ namespace Crashout.Vehicle
         private CrashoutGameSession session;
         private Rigidbody body;
         private float damage;
+        private VehicleClass vehicleClass;
 
         public uint EntityId => entityId;
         public bool IsPlayerVehicle => playerVehicle;
         public int ScoreCap => scoreCap;
         public float Damage => damage;
+        public VehicleClass Class => vehicleClass;
+        public Rigidbody Body => body != null ? body : (body = GetComponent<Rigidbody>());
 
         private void Awake()
         {
             body = GetComponent<Rigidbody>();
         }
 
-        public void Configure(uint id, bool isPlayer, CrashoutGameSession authority, int maximumScore = 18000)
+        public void Configure(uint id, bool isPlayer, CrashoutGameSession authority, int maximumScore = 18000, VehicleClass classification = VehicleClass.Sedan)
         {
             entityId = id;
             playerVehicle = isPlayer;
             session = authority;
             scoreCap = maximumScore;
+            vehicleClass = classification;
         }
 
         public void ResetDamage()

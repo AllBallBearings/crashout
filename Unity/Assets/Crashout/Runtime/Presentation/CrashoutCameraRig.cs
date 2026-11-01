@@ -14,6 +14,7 @@ namespace Crashout.Presentation
         private ArcadeVehicleController player;
         private Camera gameCamera;
         private Vector3 velocity;
+        private float trauma;
 
         public CameraMode Mode => mode;
 
@@ -29,6 +30,11 @@ namespace Crashout.Presentation
         {
             session = gameSession;
             player = target;
+        }
+
+        public void AddShake(float amount)
+        {
+            trauma = Mathf.Clamp01(trauma + amount);
         }
 
         public void CycleMode()
@@ -55,12 +61,42 @@ namespace Crashout.Presentation
 
             if (crashCamera)
             {
-                float hold = Mathf.Max(4f, session.CrashElapsed - session.TimeSinceLastScore + 1.3f);
-                float widen = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(hold, hold + 2.5f, session.CrashElapsed));
-                Vector3 close = target.position - target.forward * 5.2f + Vector3.up * 2.9f;
-                Vector3 wide = target.position - target.forward * 10f + Vector3.up * 10.5f;
-                desiredPosition = Vector3.Lerp(close, wide, widen);
-                lookTarget = target.position + Vector3.up * 0.45f;
+                // Frame the whole pile-up, not just the player's wreck.
+                Vector3 focus = target.position;
+                int count = 1;
+                foreach (DamageableVehicle vehicle in session.Vehicles)
+                {
+                    if (vehicle == null || vehicle.IsPlayerVehicle) continue;
+                    TrafficVehicle traffic = vehicle.GetComponent<TrafficVehicle>();
+                    if (traffic == null || traffic.DriveEnabled) continue;
+                    focus += vehicle.transform.position;
+                    count++;
+                }
+                focus /= count;
+                float spread = 0f;
+                foreach (DamageableVehicle vehicle in session.Vehicles)
+                {
+                    if (vehicle == null) continue;
+                    TrafficVehicle traffic = vehicle.GetComponent<TrafficVehicle>();
+                    if (vehicle.IsPlayerVehicle || (traffic != null && !traffic.DriveEnabled))
+                    {
+                        spread = Mathf.Max(spread, Vector3.Distance(vehicle.transform.position, focus));
+                    }
+                }
+
+                Vector3 away = Vector3.ProjectOnPlane(transform.position - focus, Vector3.up);
+                if (away.sqrMagnitude < 1f) away = Vector3.back;
+                away.Normalize();
+                float distance = Mathf.Clamp(7f + spread * 1.3f, 9f, 26f);
+                float lift = Mathf.Clamp(4.5f + spread * 0.9f, 6f, 20f);
+                desiredPosition = focus + away * distance + Vector3.up * lift;
+                lookTarget = focus + Vector3.up * 0.5f;
+
+                // Never sit inside a building: pull the camera in front of whatever blocks the view.
+                if (Physics.Linecast(lookTarget, desiredPosition, out RaycastHit blocker, 1 << 0, QueryTriggerInteraction.Ignore))
+                {
+                    desiredPosition = blocker.point + blocker.normal * 0.6f;
+                }
             }
             else
             {
@@ -89,6 +125,20 @@ namespace Crashout.Presentation
             transform.position = Vector3.SmoothDamp(transform.position, desiredPosition, ref velocity, smoothTime);
             Quaternion desiredRotation = Quaternion.LookRotation(lookTarget - transform.position, Vector3.up);
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-12f * Time.deltaTime));
+
+            float speed = player.SpeedMetresPerSecond;
+            float targetFov = mode == CameraMode.Tabletop ? 50f : 58f + Mathf.Clamp(speed, 0f, 24f) * 0.55f;
+            gameCamera.fieldOfView = Mathf.Lerp(gameCamera.fieldOfView, targetFov, 1f - Mathf.Exp(-4f * Time.deltaTime));
+
+            if (trauma > 0.001f)
+            {
+                float shake = trauma * trauma;
+                transform.rotation *= Quaternion.Euler(
+                    (Mathf.PerlinNoise(Time.time * 28f, 0.3f) - 0.5f) * 5f * shake,
+                    (Mathf.PerlinNoise(0.7f, Time.time * 28f) - 0.5f) * 5f * shake,
+                    (Mathf.PerlinNoise(Time.time * 24f, 4.1f) - 0.5f) * 3f * shake);
+                trauma = Mathf.Max(0f, trauma - Time.deltaTime * 1.4f);
+            }
         }
     }
 }

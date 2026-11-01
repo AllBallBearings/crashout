@@ -1,0 +1,6 @@
+{
+  "name": "Crashout.PlayModeTests",
+  "references": ["Crashout.Runtime", "Unity.InputSystem"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

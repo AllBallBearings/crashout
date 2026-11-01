@@ -22,6 +22,15 @@ namespace Crashout.Vehicle
             initialRotation = body.rotation;
         }
 
+        /// <summary>Moves the body and records the pose to return to. Writes the Rigidbody, not just the Transform.</summary>
+        public void SetStartPose(Vector3 position, Quaternion rotation)
+        {
+            if (body == null) body = GetComponent<Rigidbody>();
+            initialPosition = position;
+            initialRotation = rotation;
+            ResetBody();
+        }
+
         public void ResetBody()
         {
             body.position = initialPosition;

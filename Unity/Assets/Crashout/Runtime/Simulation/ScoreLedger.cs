@@ -11,6 +11,7 @@ namespace Crashout.Simulation
 
         public int Total { get; private set; }
         public int ChainCount => chainEntities.Count;
+        public int BonusTotal { get; private set; }
         public int HighestImpactScore { get; private set; }
         public uint HighestImpactEntity { get; private set; }
 
@@ -20,6 +21,7 @@ namespace Crashout.Simulation
             recentContacts.Clear();
             chainEntities.Clear();
             Total = 0;
+            BonusTotal = 0;
             HighestImpactScore = 0;
             HighestImpactEntity = 0;
         }
@@ -71,6 +73,49 @@ namespace Crashout.Simulation
                 HostTick = hostTick,
                 EntityId = entityId,
                 Amount = amount,
+                Total = Total,
+                ChainCount = ChainCount,
+                Impulse = impulse,
+                RelativeSpeed = relativeSpeed
+            };
+            return true;
+        }
+
+        public bool HasScored(uint entityId)
+        {
+            return chainEntities.Contains(entityId);
+        }
+
+        public void AddBonus(int amount)
+        {
+            if (amount <= 0) return;
+            Total += amount;
+            BonusTotal += amount;
+        }
+
+        /// <summary>Awards damage that did not come from a contact, such as an explosion.</summary>
+        public bool TryAward(uint hostTick, uint entityId, int amount, int entityCap, float impulse, float relativeSpeed, out ScoreEvent scoreEvent)
+        {
+            scoreEvent = default;
+            int alreadyAwarded = entityTotals.TryGetValue(entityId, out int value) ? value : 0;
+            int remaining = Math.Max(0, entityCap - alreadyAwarded);
+            if (remaining == 0 || amount <= 0) return false;
+
+            chainEntities.Add(entityId);
+            int awarded = Math.Min(remaining, amount + Math.Max(0, ChainCount - 1) * 225);
+            entityTotals[entityId] = alreadyAwarded + awarded;
+            Total += awarded;
+            if (awarded > HighestImpactScore)
+            {
+                HighestImpactScore = awarded;
+                HighestImpactEntity = entityId;
+            }
+
+            scoreEvent = new ScoreEvent
+            {
+                HostTick = hostTick,
+                EntityId = entityId,
+                Amount = awarded,
                 Total = Total,
                 ChainCount = ChainCount,
                 Impulse = impulse,
