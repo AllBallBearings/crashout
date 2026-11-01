@@ -11,6 +11,7 @@ The production game is native Unity. The website at the repository root is the p
 - `docs/ARCHITECTURE.md` — the one-world implementation boundary.
 - `docs/BROWSER_PROTOTYPE_LESSONS.md` — mechanics retained from the archived browser prototype.
 - `docs/product-requirements.md` — the complete product and engineering requirements.
+- `docs/NEXT_STEPS.md` — prioritised roadmap: first device build, tuning, multiplayer turns, shared AR table, and technical debt.
 
 The old Three.js / Quick Look implementation remains available in Git history through commit `50d158f`. It is deliberately not duplicated in the production tree.
 
