@@ -7,13 +7,17 @@ Where Crashout stands after the Crash Mode, art and tabletop-AR work (PR #1), an
 | Area | State |
 | --- | --- |
 | Crash Mode rules (junctions, boost, impact time, aftertouch, Crashbreaker, target car, medals) | Implemented. Covered by Play Mode tests on macOS. Not hand-tuned. |
-| Stylized art, post-processing, HUD, crash FX | Implemented. Looks right in the editor. Not seen on a phone. |
-| Tabletop AR (`ArTabletopMode`) | Written against AR Foundation 6.3. Falls back correctly in the editor. **Never run on a device.** |
-| Touch controls (steer, throttle, brake, boost, Crashbreaker) | Drawn and wired. **Never tested on a touchscreen.** |
+| Launch phase (swing meter, traffic released on launch, looping traffic) | Implemented and tested. A late or slow start still finds traffic. |
+| Stylized art, post-processing, crash FX | Implemented. Seen on an iPhone Air. |
+| Audio | Synthesized in code (`SynthClips`, `CrashAudio`): engine, boost, impacts, glass, explosions, horns, launch and medal cues, mute button. **Written but not yet judged by ear**, so mix and tone are untuned. |
+| Minimal HUD (icon buttons, corner score, floating joystick, ghost panels) | Implemented. Tried on an iPhone Air and the owner reports it feels good. Portrait and landscape both lay out. |
+| Tabletop AR (`ArTabletopMode`) | **Validated on an iPhone Air: placement works.** Tracking quality, long-session behaviour and frame rate are not measured. |
+| Touch controls (joystick, gas, brake, boost, Crashbreaker, launch) | Multi-touch via the Input System. Used on a device; feel reported good. Joystick radius and deadzone are first guesses. |
+| iOS build pipeline | Headless: `Editor/BuildTools.cs` produces the Xcode project, then `xcodebuild` and `devicectl` install and launch. Wireless install works once "Connect via network" is ticked in Xcode. |
 | Turn-based multiplayer | Not started. One player, one run. |
 | Shared table alignment, discovery, replication | Not started. Data boundaries exist (`PresentationSynchronizer`, `EntitySnapshot`) but nothing uses them yet. |
 
-Tests: Edit Mode 6, Play Mode 4 (`JunctionSmokeTests`, `CrashModeTests` x3). Edit Mode was not re-run after the Crash Mode work.
+Tests: Edit Mode 9 (including `LaunchQualityTests`), Play Mode 5 (`JunctionSmokeTests`, `CrashModeTests` x3 junctions, plus a held-traffic and slow-start test). All passing on macOS.
 
 ## 2. First iPhone build (do this first)
 
@@ -41,7 +45,7 @@ Everything else is guesswork until the game runs on a phone. This is the cheapes
 - The feed is black. Check that `CrashoutRenderer.asset` lists the AR Background feature and that the pipeline asset uses that renderer.
 - Pink materials. `Editor/EnsureRuntimeShaders.cs` should have added the shaders; confirm in Project Settings > Graphics > Always Included Shaders.
 - The AR rig never starts. Look for `Crashout: AR is unavailable` in the Xcode log. That means the ARKit loader or camera permission is missing and the app silently fell back to the virtual camera.
-- Multi-touch: IMGUI `RepeatButton` handles simultaneous presses poorly on some devices. If holding steer plus throttle fails, move to the UI approach in section 6.
+- Multi-touch: input is read from the Input System, not IMGUI buttons, so steer plus gas works. If a finger seems ignored, look at `CrashoutHud.CollectPointers`.
 
 **Performance budget.** The scene is roughly 500 objects with bloom, soft shadows, 4x MSAA and HDR over a camera feed. Target 60 fps. If it misses, cut in this order: bloom, MSAA to 2x, shadow distance (70 m to 40 m), the 100-building skyline (it is already skipped in AR mode), then shadow cascades.
 
@@ -51,7 +55,7 @@ Do this by playing, not by reading. Numbers below are the first guesses and wher
 
 | Knob | Now | Where |
 | --- | --- | --- |
-| Medal thresholds (Bronze/Silver/Gold) | 50k/100k/160k, 80k/160k/250k, 100k/200k/320k | `CrashScenario.cs` |
+| Medal thresholds (Bronze/Silver/Gold) | 80k/150k/250k, 120k/220k/360k, 140k/240k/380k | `CrashScenario.cs` |
 | Target car bonus | $25,000 | `CrashScenario.TargetBonus` |
 | Traffic speed per lane | 9 to 13 m/s | `Lane(...)` calls in `CrashScenario.cs` |
 | Traffic spacing and timing | hand-placed | `At(...)` slots in `CrashScenario.cs` |
@@ -63,8 +67,13 @@ Do this by playing, not by reading. Numbers below are the first guesses and wher
 | Impact time | 1.5 s at 0.3x | `CrashoutGameSession` constants |
 | Aftertouch | 3.6 s budget, 22 m/s2 push | `CrashoutGameSession.ApplyAftertouch` |
 | Boost | 3.2 s, 2.1x force, 1.45x top speed | `ArcadeVehicleController` |
+| Launch meter | 1.1 s sweep, green zone 0.80 to 0.95, perfect = +$2,500 and 1.3 s free boost | `CrashoutGameSession` constants |
+| Auto-acceleration after launch | cruises to 20 m/s, GAS and BOOST go faster | `CrashoutGameSession.FixedUpdate` |
+| Traffic loop distance | 24 m on the table, 34 m in the virtual city | `CrashoutBootstrapper` (`loopExtent`) |
+| Joystick | 54 pt for full lock, 12% deadzone, lower-left half of the screen | `CrashoutHud` constants |
+| Audio mix | engine 0.5, boost 0.45, ambience 0.22, impacts up to 1.0 | `CrashAudio` |
 
-Scripted straight-line runs landed at Bronze or Silver on every junction (about $87k, $140k, $175k). A good human run should reach Gold; if Gold is trivial or impossible after a few real attempts, move the thresholds, not the physics.
+Scripted straight-line runs with a perfect launch scored about $190k, $270k and $280k. Looping traffic raised these a lot, so the thresholds were raised to put a plain run around Silver. A good human run should reach Gold; if Gold is trivial or impossible after a few real attempts, move the thresholds, not the physics.
 
 Questions to settle by playing:
 - Does the pile-up look chaotic enough, or do wrecks stop too soon? (`TrafficVehicle` wreck damping is 0.12 / 0.1.)
@@ -107,7 +116,7 @@ Done when: two iPhones show the same junction in the same spot on the same table
 
 ## 6. Technical debt and risks
 
-- **IMGUI HUD.** Fast to build, but multi-touch, safe-area handling, scaling and styling are all weak. Move to UI Toolkit or uGUI before shipping. `CrashoutHud.cs` is the only file affected.
+- **IMGUI HUD.** Input is now handled properly (Input System multi-touch, safe area, point-based sizing), but drawing is still IMGUI with generated textures. Move to UI Toolkit or uGUI before shipping for crisper text, accessibility and easier styling. `CrashoutHud.cs` is the only file affected.
 - **Runtime-created materials and shaders.** The art relies on `Shader.Find` at runtime. `EnsureRuntimeShaders` covers the three shaders in use; adding any new one requires adding it there too. Longer term, ship real material assets.
 - **`CrashoutArt.cs` is large.** It builds materials, textures, the city, props, cars, post-processing and atmosphere. Split it before it grows (cars, city, atmosphere).
 - **Time scale used for pause and slow motion.** `ArTabletopMode` pauses with `Time.timeScale = 0` and the session uses 0.3 for impact time. They guard against each other, but a proper pause/time service would be safer.
@@ -127,7 +136,7 @@ Ideas drawn from Burnout, none started:
 - Hazards and set pieces: gas stations, billboards, trains, a lamp-post domino row.
 - Mash-to-charge Crashbreaker and a tap-to-slow Impact Time button instead of automatic slow motion.
 - Score "feel": stronger audio-visual feedback per hit, a big end-of-run replay of the best moment, damage deformation or detaching panels.
-- **Audio.** There is none yet: engine, impacts, glass, explosions, a score tick, a music sting on medals. This will change how the game feels more than most visual work.
+- **Audio polish.** The synthesized effects are a placeholder. Real recorded or authored sounds (engine layers, panel crunches, glass, explosions) and music would change how the game feels more than most visual work. Also check how iOS treats the silent switch.
 - Persistence: best score and medal per junction, unlocks.
 - Replay or share: record the crash and export a clip. High value for a game built around spectacle.
 
@@ -153,5 +162,5 @@ Ideas drawn from Burnout, none started:
 1. First iPhone build and fix what it exposes (section 2).
 2. Tune the feel with real play (section 3).
 3. Pass-and-play turns and leaderboard (section 4).
-4. Audio and a first TestFlight build (sections 7 and 8).
+4. Judge and polish the audio, then a first TestFlight build (sections 7 and 8).
 5. Multi-device shared table (section 5).

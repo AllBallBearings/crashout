@@ -15,6 +15,7 @@ namespace Crashout.Bootstrap
         private ArcadeVehicleController player;
         private ResettableBody playerReset;
         private int scenarioIndex;
+        private float loopExtent = 34f;
         private CrashoutArt art;
         private Transform city;
         private PhysicsMaterial rollingContact;
@@ -36,6 +37,8 @@ namespace Crashout.Bootstrap
 
             art = new CrashoutArt();
             bool useAr = ArTabletopMode.ShouldUseAr;
+            // On the table the traffic loops inside the 52 m board; in the virtual city it loops farther out.
+            loopExtent = useAr ? 24f : 34f;
             art.ApplyAtmosphere(transform, useAr);
             city = art.BuildCity(transform, useAr);
 
@@ -46,10 +49,12 @@ namespace Crashout.Bootstrap
             art.InstallPostProcessing(cameraRig.GetComponent<Camera>(), transform);
             CrashoutHud hud = gameObject.AddComponent<CrashoutHud>();
             CrashFx fx = gameObject.AddComponent<CrashFx>();
+            CrashAudio crashAudio = gameObject.AddComponent<CrashAudio>();
             fx.Configure(session, cameraRig);
             cameraRig.Configure(session, player);
             hud.Configure(session, cameraRig);
             session.Configure(player, cameraRig, vehicles);
+            crashAudio.Configure(session);
             session.ScenarioChangeRequested += ChangeScenario;
             LoadScenario(0);
 
@@ -152,6 +157,7 @@ namespace Crashout.Bootstrap
             collider.sharedMaterial = rollingContact;
             TrafficVehicle traffic = car.AddComponent<TrafficVehicle>();
             traffic.Configure(spawn.Direction, spawn.Lane, spawn.Speed, spawn.AlongX);
+            traffic.SetLoopExtent(loopExtent);
             body.mass = spec.Mass;
             body.centerOfMass = new Vector3(0f, spawn.Class == VehicleClass.Bus || spawn.Class == VehicleClass.Tanker ? -0.35f : -0.12f, 0f);
             body.maxAngularVelocity = 14f;
@@ -159,7 +165,6 @@ namespace Crashout.Bootstrap
             damageable.Configure(id, false, session, spec.ScoreCap, spawn.Class);
             ResettableBody resettable = car.AddComponent<ResettableBody>();
             resettable.CapturePose();
-            traffic.ResetController();
             vehicles.Add(damageable);
             trafficObjects.Add(car);
             return damageable;
@@ -171,6 +176,11 @@ namespace Crashout.Bootstrap
             if (city != null) Destroy(city.gameObject);
             city = art.BuildCity(transform, false);
             RenderSettings.fog = true;
+            loopExtent = 34f;
+            foreach (GameObject car in trafficObjects)
+            {
+                if (car != null) car.GetComponent<TrafficVehicle>()?.SetLoopExtent(loopExtent);
+            }
         }
 
         private void OnDestroy()

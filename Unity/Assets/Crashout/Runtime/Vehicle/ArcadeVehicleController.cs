@@ -29,6 +29,7 @@ namespace Crashout.Vehicle
         private float steeringVisual;
         private bool propulsionEnabled = true;
         private float boostMeter = 1f;
+        private float launchBoostUntil;
 
         public Rigidbody Body => body;
         public float SpeedMetresPerSecond => body == null ? 0f : body.linearVelocity.magnitude;
@@ -53,12 +54,19 @@ namespace Crashout.Vehicle
             propulsionEnabled = enabled;
         }
 
+        /// <summary>A perfect launch gives a free burst of boost that does not drain the meter.</summary>
+        public void GrantLaunchBoost(float seconds)
+        {
+            launchBoostUntil = Time.time + seconds;
+        }
+
         public void ResetController()
         {
             propulsionEnabled = true;
             steeringVisual = 0f;
             boostMeter = 1f;
             IsBoosting = false;
+            launchBoostUntil = 0f;
         }
 
         public void StepAuthority(DriverInputCommand command)
@@ -70,8 +78,9 @@ namespace Crashout.Vehicle
             float lateralSpeed = Vector3.Dot(body.linearVelocity, transform.right);
             body.AddForce(-transform.right * lateralSpeed * lateralGrip * body.mass, ForceMode.Force);
 
-            IsBoosting = propulsionEnabled && command.Boost && command.Throttle > 0f && boostMeter > 0.01f;
-            if (IsBoosting) boostMeter = Mathf.Max(0f, boostMeter - Time.fixedDeltaTime / 3.2f);
+            bool launchBoost = propulsionEnabled && Time.time < launchBoostUntil;
+            IsBoosting = launchBoost || (propulsionEnabled && command.Boost && command.Throttle > 0f && boostMeter > 0.01f);
+            if (IsBoosting && !launchBoost) boostMeter = Mathf.Max(0f, boostMeter - Time.fixedDeltaTime / 3.2f);
             float speedLimit = IsBoosting ? maximumSpeed * 1.45f : maximumSpeed;
 
             if (propulsionEnabled)

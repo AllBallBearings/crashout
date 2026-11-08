@@ -16,6 +16,11 @@ namespace Crashout.Simulation
         private const float ImpactTimeSeconds = 1.5f;
         private const float ImpactTimeScale = 0.3f;
         private const float MinimumCrashbreakerCharge = 0.12f;
+        // Launch meter: a golf-style swing bar. The green zone gives a perfect, boosted start.
+        private const float LaunchSweepSeconds = 1.1f;
+        public const float LaunchZoneMin = 0.8f;
+        public const float LaunchZoneMax = 0.95f;
+        private const float CruiseSpeed = 20f;
 
         private readonly SessionStateMachine stateMachine = new SessionStateMachine();
         private readonly ScoreLedger scoreLedger = new ScoreLedger();
@@ -39,6 +44,7 @@ namespace Crashout.Simulation
         private float crashbreakerCharge;
         private int crashbreakersUsed;
         private int bestChain;
+        private float readyStartedAt;
         private uint turnId = 1;
 
         public bool IsAuthority { get; private set; } = true;
@@ -55,6 +61,10 @@ namespace Crashout.Simulation
         public bool IsImpactTime => Phase == GamePhase.Crash && Time.unscaledTime < impactTimeUntil;
         public bool CanCrashbreak => (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay) && crashbreakerCharge >= MinimumCrashbreakerCharge;
         public bool TargetDown => targetDown;
+        public bool IsReadyToLaunch => Phase == GamePhase.ReadyCheck;
+        /// <summary>0 to 1 and back, sweeping while the player waits to launch.</summary>
+        public float LaunchMeter => Mathf.PingPong((Time.unscaledTime - readyStartedAt) / LaunchSweepSeconds, 1f);
+        public float LastLaunchQuality { get; private set; }
         public uint TargetEntityId => targetEntityId;
         public CrashScenario Scenario => scenario;
         public CrashMedal Medal => scenario == null ? CrashMedal.None : scenario.MedalFor(Score);
@@ -84,7 +94,8 @@ namespace Crashout.Simulation
             cameraRig = rig;
             SetVehicles(damageableVehicles);
             stateMachine.PhaseChanged += HandlePhaseChanged;
-            stateMachine.StartPrototypeTurn();
+            readyStartedAt = Time.unscaledTime;
+            stateMachine.StartReady();
         }
 
         /// <summary>Installs a freshly built set of vehicles for a scenario and restarts the turn.</summary>
@@ -135,7 +146,11 @@ namespace Crashout.Simulation
             }
             if (keyboard != null && (keyboard.spaceKey.wasPressedThisFrame || keyboard.fKey.wasPressedThisFrame))
             {
-                TryCrashbreaker();
+                if (!TryLaunch()) TryCrashbreaker();
+            }
+            if (keyboard != null && (keyboard.wKey.wasPressedThisFrame || keyboard.upArrowKey.wasPressedThisFrame))
+            {
+                TryLaunch();
             }
             if (keyboard != null && keyboard.nKey.wasPressedThisFrame)
             {
@@ -173,7 +188,11 @@ namespace Crashout.Simulation
 
             if (Phase == GamePhase.Driving)
             {
-                player.StepAuthority(localInput.Sample(HostTick, turnId));
+                DriverInputCommand command = localInput.Sample(HostTick, turnId);
+                // The car accelerates itself once launched; the player steers, brakes and boosts.
+                float forwardSpeed = Vector3.Dot(player.Body.linearVelocity, player.transform.forward);
+                if (command.Brake < 0.1f && (forwardSpeed < CruiseSpeed || command.Boost)) command.Throttle = 1f;
+                player.StepAuthority(command);
             }
             else if (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay)
             {
@@ -215,6 +234,52 @@ namespace Crashout.Simulation
             Vector3 wish = right * steer + forward * push;
             body.AddForce(wish * body.mass * 22f, ForceMode.Force);
             body.AddTorque(Vector3.Cross(Vector3.up, wish) * body.mass * 1.5f, ForceMode.Force);
+        }
+
+        public static float LaunchQualityAt(float meter)
+        {
+            if (meter >= LaunchZoneMin && meter <= LaunchZoneMax) return 1f;
+            if (meter < LaunchZoneMin) return Mathf.Lerp(0.25f, 0.8f, meter / LaunchZoneMin);
+            return Mathf.Lerp(0.8f, 0.3f, (meter - LaunchZoneMax) / (1f - LaunchZoneMax));
+        }
+
+        /// <summary>Launches using the meter's current position.</summary>
+        public bool TryLaunch()
+        {
+            if (Phase != GamePhase.ReadyCheck) return false;
+            Launch(LaunchQualityAt(LaunchMeter));
+            return true;
+        }
+
+        /// <summary>
+        /// Starts the run. Traffic is released on this moment, so the junction is always timed
+        /// from the launch no matter when the player chooses to start.
+        /// </summary>
+        public void Launch(float quality)
+        {
+            if (Phase != GamePhase.ReadyCheck || player == null) return;
+            quality = Mathf.Clamp01(quality);
+            LastLaunchQuality = quality;
+            stateMachine.TryAdvance(GamePhase.Countdown);
+            stateMachine.TryAdvance(GamePhase.Driving);
+
+            foreach (TrafficVehicle traffic in trafficVehicles)
+            {
+                traffic.Launch();
+            }
+
+            player.Body.linearVelocity = player.transform.forward * Mathf.Lerp(1f, 5f, quality);
+            player.Body.WakeUp();
+            Vector3 label = player.transform.position + Vector3.up * 1.5f;
+            if (quality >= 0.99f)
+            {
+                player.GrantLaunchBoost(1.3f);
+                Award("PERFECT LAUNCH", 2500, label);
+            }
+            else
+            {
+                BonusAwarded?.Invoke(quality >= 0.7f ? "GOOD LAUNCH" : quality >= 0.45f ? "SLOW START" : "BAD START", 0, label);
+            }
         }
 
         public bool TryCrashbreaker()
@@ -366,7 +431,8 @@ namespace Crashout.Simulation
             impactTimeUntil = 0f;
             turnId++;
             lastScoringImpactAt = Time.time;
-            stateMachine.ResetToDriving();
+            readyStartedAt = Time.unscaledTime;
+            stateMachine.ResetToReady();
             ScoreChanged?.Invoke(default);
         }
 

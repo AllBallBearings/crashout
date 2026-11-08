@@ -36,7 +36,7 @@ namespace Crashout.Simulation
         public int Silver;
         public int Gold;
         public int TargetBonus = 25000;
-        public Vector3 PlayerStart = new Vector3(1.5f, 0.56f, -19f);
+        public Vector3 PlayerStart = new Vector3(1.5f, 0.56f, -22f);
         public readonly List<TrafficSpawn> Traffic = new List<TrafficSpawn>();
 
         public CrashMedal MedalFor(int score)
@@ -81,9 +81,9 @@ namespace Crashout.Simulation
             {
                 Name = "CROSS TRAFFIC",
                 Brief = "Hit the pickup for the target bonus.",
-                Bronze = 50000,
-                Silver = 100000,
-                Gold = 160000
+                Bronze = 80000,
+                Silver = 150000,
+                Gold = 250000
             };
             Lane(s, true, 1f, EastInner, 9f, At(-23f, VehicleClass.Sedan), At(-14f, VehicleClass.Van), At(-6f, VehicleClass.Hatch, true), At(2.5f, VehicleClass.Sedan));
             Lane(s, true, 1f, EastOuter, 10.5f, At(-21f, VehicleClass.Hatch), At(-12.5f, VehicleClass.Sedan), At(-4f, VehicleClass.Pickup), At(5f, VehicleClass.Van), At(13f, VehicleClass.Sedan));
@@ -98,9 +98,9 @@ namespace Crashout.Simulation
             {
                 Name = "RUSH HOUR",
                 Brief = "Packed lanes and two buses. Find the weak point.",
-                Bronze = 80000,
-                Silver = 160000,
-                Gold = 250000
+                Bronze = 120000,
+                Silver = 220000,
+                Gold = 360000
             };
             Lane(s, true, 1f, EastInner, 10f, At(-23f, VehicleClass.Hatch), At(-16f, VehicleClass.Sedan), At(-9f, VehicleClass.Van), At(-2f, VehicleClass.Sedan), At(5f, VehicleClass.Hatch));
             Lane(s, true, 1f, EastOuter, 12f, At(-22f, VehicleClass.Sedan), At(-12f, VehicleClass.Bus), At(0f, VehicleClass.Pickup, true), At(8f, VehicleClass.Sedan), At(15f, VehicleClass.Van));
@@ -115,9 +115,9 @@ namespace Crashout.Simulation
             {
                 Name = "TANKER RUN",
                 Brief = "A fuel tanker is on the road. Light it up.",
-                Bronze = 100000,
-                Silver = 200000,
-                Gold = 320000
+                Bronze = 140000,
+                Silver = 240000,
+                Gold = 380000
             };
             Lane(s, true, 1f, EastInner, 9.5f, At(-22f, VehicleClass.Sedan), At(-13f, VehicleClass.Hatch), At(-5f, VehicleClass.Van));
             Lane(s, true, 1f, EastOuter, 11f, At(-20f, VehicleClass.Pickup), At(-9f, VehicleClass.Sedan), At(1f, VehicleClass.Van), At(10f, VehicleClass.Hatch));

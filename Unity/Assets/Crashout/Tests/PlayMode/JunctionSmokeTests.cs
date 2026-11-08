@@ -72,6 +72,7 @@ namespace Crashout.Tests
                 InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
 #endif
                 session.ResetTurn();
+                session.Launch(1f);
                 Vector3 start = session.Player.Body.position;
                 float maxSpeed = 0f, maxYaw = 0f;
                 session.ScoreChanged += OnScore;

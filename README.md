@@ -20,7 +20,7 @@ The old Three.js / Quick Look implementation remains available in Git history th
 1. Use Unity `6000.3.27f2` (Apple Silicon on Apple Silicon Macs) with iOS Build Support.
 2. Open the `Unity` directory from Unity Hub.
 3. Open `Assets/Crashout/Scenes/Startup.unity` (it is the only scene in the build list) and press Play. `CrashoutBootstrapper` creates the junction, traffic and HUD at runtime.
-4. Hold `W` / Up Arrow to accelerate, use `A` and `D` / arrow keys to steer, `S` to brake, hold `Shift` to boost, `C` to cycle cameras, `R` to retry, and `N` for the next junction.
+4. Hold `W` / Up Arrow to accelerate, use `A` and `D` / arrow keys to steer, `S` to brake, hold `Shift` to boost, `C` to cycle cameras, `R` to retry, and `N` for the next junction. Each run starts frozen: tap `W` / `Space` (or the GAS pad) with the launch bar in the green to start, and the traffic is released at that moment.
 
 The runtime also draws press-and-hold touch controls for device builds. The single-device slice already uses a 60 Hz authority tick, physical Rigidbody traffic, host-only damage scoring, repeat-contact filtering, settle detection, and a 20-second safety timeout.
 
