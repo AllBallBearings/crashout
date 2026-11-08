@@ -35,6 +35,22 @@ namespace Crashout.Simulation
             PhaseChanged?.Invoke(Phase, HostTick, Sequence);
         }
 
+        /// <summary>Begins a turn in the pre-launch phase; traffic is held until the player launches.</summary>
+        public void StartReady()
+        {
+            Phase = GamePhase.ReadyCheck;
+            Sequence++;
+            PhaseChanged?.Invoke(Phase, HostTick, Sequence);
+        }
+
+        public void ResetToReady()
+        {
+            Phase = GamePhase.Reset;
+            Sequence++;
+            PhaseChanged?.Invoke(Phase, HostTick, Sequence);
+            StartReady();
+        }
+
         public void ResetToDriving()
         {
             Phase = GamePhase.Reset;

@@ -36,6 +36,7 @@ namespace Crashout.Simulation
         [Range(0f, 1f)] public float Throttle;
         [Range(0f, 1f)] public float Brake;
         public bool Reverse;
+        public bool Boost;
     }
 
     [Serializable]

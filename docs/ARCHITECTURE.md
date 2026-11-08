@@ -49,7 +49,7 @@ The intended rates are 60 Hz host physics, 30–60 Hz driver input, and 20 Hz sn
 
 ## Next implementation slices
 
-1. Validate and tune the primitive bootstrap scene in Unity 6.3 LTS on a non-Pro iPhone.
+1. Validate and tune the primitive bootstrap scene in Unity 6.3 LTS (`6000.3.27f2`) on a non-Pro iPhone.
 2. Replace prototype geometry with prefabs and ScriptableObject tuning assets without changing the simulation contracts.
 3. Add an AR Foundation session and bind its accepted host anchor to `ArBoardCoordinator`.
 4. Prove ARWorldMap transfer on two physical devices; retain an image-marker fallback.

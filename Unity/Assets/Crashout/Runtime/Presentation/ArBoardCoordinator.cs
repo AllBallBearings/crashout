@@ -15,8 +15,11 @@ namespace Crashout.Presentation
     public sealed class ArBoardCoordinator : MonoBehaviour
     {
         public const float DefaultPresentationScale = 1f / 32f;
+        // Wider than the 1:24-1:40 product range so the junction also fits a small coffee table.
+        public const float MinPresentationScale = 1f / 64f;
+        public const float MaxPresentationScale = 1f / 24f;
 
-        [SerializeField, Range(1f / 40f, 1f / 24f)] private float presentationScale = DefaultPresentationScale;
+        [SerializeField, Range(MinPresentationScale, MaxPresentationScale)] private float presentationScale = DefaultPresentationScale;
         [SerializeField] private BoardTrackingState trackingState = BoardTrackingState.Unavailable;
 
         public float PresentationScale => presentationScale;
@@ -28,9 +31,14 @@ namespace Crashout.Presentation
         public void Place(Pose tabletopPose, float selectedScale)
         {
             transform.SetPositionAndRotation(tabletopPose.position, tabletopPose.rotation);
-            presentationScale = Mathf.Clamp(selectedScale, 1f / 40f, 1f / 24f);
+            presentationScale = Mathf.Clamp(selectedScale, MinPresentationScale, MaxPresentationScale);
             IsPlaced = true;
             SetTrackingState(BoardTrackingState.Tracking);
+        }
+
+        public void SetScale(float scale)
+        {
+            presentationScale = Mathf.Clamp(scale, MinPresentationScale, MaxPresentationScale);
         }
 
         public Vector3 CanonicalToTabletopPosition(Vector3 canonicalPosition)

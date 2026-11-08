@@ -1,0 +1,13 @@
+{
+  "name": "Crashout.Editor",
+  "rootNamespace": "Crashout.Editor",
+  "references": [
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.XR.ARFoundation",
+    "Unity.XR.Management",
+    "Unity.XR.Management.Editor"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}
