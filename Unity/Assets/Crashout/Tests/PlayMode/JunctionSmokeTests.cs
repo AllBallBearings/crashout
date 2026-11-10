@@ -76,11 +76,14 @@ namespace Crashout.Tests
                 Vector3 start = session.Player.Body.position;
                 float maxSpeed = 0f, maxYaw = 0f;
                 session.ScoreChanged += OnScore;
-                for (int tick = 0; tick < 360 && trafficHit == 0; tick++)
+                // The approach now starts on a runway one to two board-lengths out, so allow time to get there.
+                for (int tick = 0; tick < 900 && trafficHit == 0; tick++)
                 {
                     // Inject key state on the test device, not driver commands or forces.
-                    InputState.Change(keyboard, tick >= 35 && tick < 60 ?
-                        new KeyboardState(Key.W, Key.D) : new KeyboardState(Key.W));
+                    // A lane change: steer right, then straighten up so the car stays on the runway.
+                    InputState.Change(keyboard, tick >= 35 && tick < 50 ? new KeyboardState(Key.W, Key.D)
+                        : tick >= 50 && tick < 65 ? new KeyboardState(Key.W, Key.A)
+                        : new KeyboardState(Key.W));
                     keyboard.MakeCurrent();
                     yield return new WaitForFixedUpdate();
                     maxSpeed = Mathf.Max(maxSpeed, session.Player.SpeedMetresPerSecond);

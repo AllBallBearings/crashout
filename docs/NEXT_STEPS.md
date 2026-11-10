@@ -8,8 +8,9 @@ Where Crashout stands after the Crash Mode, art and tabletop-AR work (PR #1), an
 | --- | --- |
 | Crash Mode rules (junctions, boost, impact time, aftertouch, Crashbreaker, target car, medals) | Implemented. Covered by Play Mode tests on macOS. Not hand-tuned. |
 | Launch phase (swing meter, traffic released on launch, looping traffic) | Implemented and tested. A late or slow start still finds traffic. |
-| Stylized art, post-processing, crash FX | Implemented. Seen on an iPhone Air. |
-| Audio | Synthesized in code (`SynthClips`, `CrashAudio`): engine, boost, impacts, glass, explosions, horns, launch and medal cues, mute button. **Written but not yet judged by ear**, so mix and tone are untuned. |
+| Realistic art pass (PBR textures, lofted cars, reflections, SSAO, cinematic post, mesh damage) | Implemented on `feature/aaa-visuals-and-runways`. Reviewed from editor captures only; **not yet profiled on iPhone**. |
+| Approach runways (hill, expressway bridge, mountain pass with ramp) and arrival-timed traffic | Implemented and covered by `RunwayTests` and the Play Mode tests. AR shows the road structure reaching off the board; not yet tried on a table. |
+| Audio | Real-time V8 synth (`EngineSynth`) plus synthesized impacts, glass, explosions, wind, squeal, Doppler traffic and tension cues (`SynthClips`, `CrashAudio`). **Not yet judged by ear on device.** |
 | Minimal HUD (icon buttons, corner score, floating joystick, ghost panels) | Implemented. Tried on an iPhone Air and the owner reports it feels good. Portrait and landscape both lay out. |
 | Tabletop AR (`ArTabletopMode`) | **Validated on an iPhone Air: placement works.** Tracking quality, long-session behaviour and frame rate are not measured. |
 | Touch controls (joystick, gas, brake, boost, Crashbreaker, launch) | Multi-touch via the Input System. Used on a device; feel reported good. Joystick radius and deadzone are first guesses. |
@@ -47,7 +48,7 @@ Everything else is guesswork until the game runs on a phone. This is the cheapes
 - The AR rig never starts. Look for `Crashout: AR is unavailable` in the Xcode log. That means the ARKit loader or camera permission is missing and the app silently fell back to the virtual camera.
 - Multi-touch: input is read from the Input System, not IMGUI buttons, so steer plus gas works. If a finger seems ignored, look at `CrashoutHud.CollectPointers`.
 
-**Performance budget.** The scene is roughly 500 objects with bloom, soft shadows, 4x MSAA and HDR over a camera feed. Target 60 fps. If it misses, cut in this order: bloom, MSAA to 2x, shadow distance (70 m to 40 m), the 100-building skyline (it is already skipped in AR mode), then shadow cascades.
+**Performance budget.** The realistic pass adds 4-cascade 4K shadows (150 m), SSAO, Complex Lit clear coat on every car, a 512 px texture set generated at startup and real-time reflection probe renders. If the phone misses 60 fps, cut SSAO first, then shadow resolution and distance, then motion blur and depth of field. Previous note: The scene is roughly 500 objects with bloom, soft shadows, 4x MSAA and HDR over a camera feed. Target 60 fps. If it misses, cut in this order: bloom, MSAA to 2x, shadow distance (70 m to 40 m), the 100-building skyline (it is already skipped in AR mode), then shadow cascades.
 
 ## 3. Tune the feel
 

@@ -36,6 +36,26 @@ The game follows Burnout Revenge's Crash Mode: drive into a busy junction and ca
 
 Scenarios live in `Runtime/Simulation/CrashScenario.cs` and vehicle classes in `Runtime/Vehicle/VehicleSpec.cs`.
 
+## Approach runways
+
+Every junction now starts far outside the 52 m board, one to two board-lengths out and well above it, so the run-in builds tension before the pile-up:
+
+| Junction | Approach | Start |
+| --- | --- | --- |
+| Cross Traffic | **Hilltop Drop**: the brow of a 16 m hill, then a 26% descent onto the junction | 98 m out |
+| Rush Hour | **The Overpass**: a cable-stayed expressway over a river, then a ramp down into town | 92 m out |
+| Tanker Run | **Mountain Pass**: out of a tunnel, down a 30% pass and off a kicker ramp | 103 m out |
+
+Profiles live in `RunwayProfile` (grade breaks blended through parabolic vertical curves) and are set per junction in `CrashScenario.cs`. `ApproachPlanner` predicts the player's arrival from their position, speed, inputs and the grade; traffic is parked and then phase-locked to that estimate (`TrafficVehicle.SteerToPhase`) so the junction converges as the player arrives, whether they cruise or boost the whole way. Out on the runway the barriers only scrape; scenery ends a run only on the board, and touching down off a crest or the ramp never does.
+
+## Look and sound
+
+- **Art** is still generated at runtime, now physically based: synthesized albedo, normal and smoothness maps (asphalt, painted road, paving, brick and render facades, rock, terrain, foliage), clear-coat car paint, lofted car bodies with wheel arches and tumblehome, spoked alloy wheels, real-time reflections, a cloud layer, 4-cascade soft shadows, SSAO and a filmic post stack (ACES, white balance, split-tone grade, lens dirt, grain, motion blur, slow-motion depth of field) directed by `CinematicFx`.
+- **Damage**: `VehicleDeformer` dents render meshes around each contact, crazes glass, kills lamps and tears off bumpers; `VehicleLook` drives brake lights and post-crash hazards.
+- **Sound**: `EngineSynth` is a real-time V8 on the audio thread with a six-speed gearbox, overrun crackle and supercharger whine. Impacts are modal-synthesis metal with crumple grains, granular glass and debris; explosions layer a crack, sub boom and rumble. Wind, tyre roar, squeal, scrape, Doppler traffic, a tension drone and heartbeat, a low-pass "underwater" slow motion and reverb zones complete the mix.
+
+Set `CRASHOUT_CAPTURE_DIR` and run the `CaptureFrames` Play Mode test to render each junction's key moments to PNG for art review. Batch-mode (headless) runs are silent; the game mutes its listener when `Application.isBatchMode` is true.
+
 ## Tabletop AR on iPhone
 
 On an iPhone build the world is shown on a real table. The physics world is never scaled; the AR camera pose is mapped through the board transform into canonical space and a second camera draws the simulation over the camera feed. Aim at a flat surface, size the board with `-` / `+`, and tap PLACE BOARD. If ARKit is unavailable the game falls back to the virtual camera.
@@ -46,7 +66,7 @@ On an iPhone build the world is shown on a real table. The physics world is neve
 
 Run Edit Mode tests from Unity Test Runner. The tests cover phase authority, score caps, repeated-contact filtering, chain scoring, and the 1:32 AR mapping.
 
-In the Play Mode tab, run `JunctionSmokeTests` and `CrashModeTests` with graphics enabled. `CrashModeTests` plays every junction, fires the Crashbreaker and asserts a chain reaction. `JunctionSmokeTests` checks a real camera frame for visible vehicle color and shader errors, then drives the car into traffic using simulated keyboard input and checks for a scored collision. The graphics default is `CrashoutPipeline`; quality levels inherit it.
+Edit Mode also covers runway geometry and arrival timing (`RunwayTests`). In the Play Mode tab, run `JunctionSmokeTests` and `CrashModeTests` with graphics enabled. `CrashModeTests` plays every junction, fires the Crashbreaker and asserts a chain reaction. `JunctionSmokeTests` checks a real camera frame for visible vehicle color and shader errors, then drives the car into traffic using simulated keyboard input and checks for a scored collision. The graphics default is `CrashoutPipeline`; quality levels inherit it.
 
 ## Run the companion site
 

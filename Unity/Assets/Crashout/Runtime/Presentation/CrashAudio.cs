@@ -1,4 +1,7 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Crashout.Simulation;
 using Crashout.Vehicle;
 using UnityEngine;
@@ -6,34 +9,55 @@ using UnityEngine;
 namespace Crashout.Presentation
 {
     /// <summary>
-    /// Sound for the game. Driven entirely by session events and state, so it never touches simulation.
-    /// Clips are synthesized at startup (see <see cref="SynthClips"/>).
+    /// The game's sound. A real-time V8 (with a six-speed gearbox, overrun crackle and supercharger
+    /// whine) leads the mix; wind, tyre roar, squeal and scraping follow the car; traffic engines pass
+    /// with Doppler; a low drone and heartbeat build tension down the approach. Crashes layer modal
+    /// metal, glass and debris; impact time muffles the world through a low-pass and deepens hits.
+    /// Driven entirely by session events and read-only state, so it never touches simulation.
     /// </summary>
     public sealed class CrashAudio : MonoBehaviour
     {
-        private const int PoolSize = 14;
+        private const int PoolSize = 18;
+        private const int TrafficVoices = 5;
         private const string MutePreference = "crashout.muted";
+        private static readonly float[] GearRatios = { 3.3f, 2.15f, 1.55f, 1.2f, 0.97f, 0.8f };
+        private const float FinalDrive = 3.6f;
+        private const float IdleRpm = 850f;
+        private const float RedlineRpm = 7400f;
 
         private CrashoutGameSession session;
-        private AudioSource engine, boost, ambient, ui;
+        private EngineSynth engine;
+        private AudioSource boost, wind, road, squeal, scrape, ambient, tension, ui;
         private readonly List<AudioSource> pool = new List<AudioSource>();
+        private readonly List<AudioSource> trafficVoices = new List<AudioSource>();
+        private readonly List<DamageableVehicle> trafficAssigned = new List<DamageableVehicle>();
         private int nextPooled;
+        private AudioLowPassFilter listenerFilter;
+        private AudioReverbZone reverb;
 
-        private AudioClip crunchLight, crunchHeavy, glass, explosion, slowMotion, click, tickHigh;
-        private AudioClip perfect, bonus, targetDown, fail, horn, whoosh, readyBeep;
-        private AudioClip medalGold, medalSilver, medalBronze, medalNone;
+        private AudioClip[] impactsLight, impactsHeavy, glassClips, debrisClips, explosions, backfires;
+        private AudioClip slowMotion, click, tickHigh, readyBeep, horn, airHorn, launch, blowOff, thud, heartbeat;
+        private AudioClip perfect, bonus, targetDown, fail, medalGold, medalSilver, medalBronze, medalNone;
 
         private readonly HashSet<uint> honked = new HashSet<uint>();
         private float lastMeter;
         private float nextHornScan;
+        private float nextTrafficScan;
         private bool couldCrashbreak;
+        private int gear;
+        private float shiftUntil;
+        private float engineRpm = IdleRpm;
+        private bool wasBoosting;
+        private int lastGrounded = 4;
+        private float airborneSince;
+        private float nextHeartbeat;
 
         public static CrashAudio Instance { get; private set; }
         public static bool Muted { get; private set; }
 
         public static void PlayClick()
         {
-            if (Instance != null) Instance.ui.PlayOneShot(Instance.click, 0.7f);
+            if (Instance != null && Instance.click != null) Instance.ui.PlayOneShot(Instance.click, 0.6f);
         }
 
         public static void ToggleMute()
@@ -53,51 +77,144 @@ namespace Crashout.Presentation
             session.Exploded += OnExploded;
             session.BonusAwarded += OnBonus;
             session.PhaseChanged += OnPhase;
+
+            AudioListener listener = FindFirstObjectByType<AudioListener>();
+            if (listener != null)
+            {
+                listenerFilter = listener.GetComponent<AudioLowPassFilter>();
+                if (listenerFilter == null) listenerFilter = listener.gameObject.AddComponent<AudioLowPassFilter>();
+                listenerFilter.cutoffFrequency = 22000f;
+                listenerFilter.lowpassResonanceQ = 1.1f;
+            }
+            ApplyReverb();
         }
 
         private void Awake()
         {
             Instance = this;
             Muted = PlayerPrefs.GetInt(MutePreference, 0) == 1;
-            AudioListener.volume = Muted ? 0f : 1f;
+            // Headless test runs still drive the speakers; keep them silent.
+            AudioListener.volume = Muted || Application.isBatchMode ? 0f : 1f;
+            BuildClips();
 
-            crunchLight = SynthClips.Crunch(false, 101);
-            crunchHeavy = SynthClips.Crunch(true, 202);
-            glass = SynthClips.Glass(303);
-            explosion = SynthClips.Explosion(404);
-            slowMotion = SynthClips.SlowMotion();
-            click = SynthClips.Click();
-            tickHigh = SynthClips.Tick(1500f);
-            readyBeep = SynthClips.ReadyBeep();
-            horn = SynthClips.Horn();
-            whoosh = SynthClips.LaunchWhoosh();
-            perfect = SynthClips.Chime("Perfect launch", new[] { 659f, 988f }, 0.09f, 0.9f);
-            bonus = SynthClips.Chime("Bonus", new[] { 1047f, 1319f }, 0.07f, 0.6f, 6f);
-            targetDown = SynthClips.Chime("Target down", new[] { 784f, 1047f, 1319f, 1568f }, 0.08f, 1.1f, 4f);
-            fail = SynthClips.Fail("Bad start", 230f, 110f, 0.5f);
-            medalGold = SynthClips.Chime("Gold", new[] { 523f, 659f, 784f, 1047f, 1319f }, 0.12f, 1.7f, 3f);
-            medalSilver = SynthClips.Chime("Silver", new[] { 523f, 659f, 784f }, 0.13f, 1.3f, 3.5f);
-            medalBronze = SynthClips.Chime("Bronze", new[] { 523f, 659f }, 0.14f, 1.0f, 4f);
-            medalNone = SynthClips.Fail("No medal", 300f, 170f, 0.9f);
+            GameObject engineObject = new GameObject("Engine");
+            engineObject.transform.SetParent(transform, false);
+            engineObject.AddComponent<AudioSource>();
+            engine = engineObject.AddComponent<EngineSynth>();
+            engine.Redline = RedlineRpm;
 
-            engine = Source("Engine", SynthClips.EngineLoop(), true);
-            boost = Source("Boost", SynthClips.BoostLoop(), true);
-            ambient = Source("Ambience", SynthClips.AmbientLoop(), true);
+            boost = Loop("Boost", SynthClips.Clip("Boost loop", SynthClips.RenderBoostLoop(), true));
+            wind = Loop("Wind", SynthClips.Clip("Wind", SynthClips.RenderWind(), true));
+            road = Loop("Road", SynthClips.Clip("Road", SynthClips.RenderRoad(), true));
+            squeal = Loop("Squeal", SynthClips.Clip("Squeal", SynthClips.RenderSqueal(), true));
+            scrape = Loop("Scrape", SynthClips.Clip("Scrape", SynthClips.RenderScrape(), true));
+            ambient = Loop("Ambience", SynthClips.Clip("Ambience", SynthClips.RenderAmbience(), true));
+            tension = Loop("Tension", SynthClips.Clip("Tension", SynthClips.RenderTension(), true));
             ui = Source("Interface", null, false);
-            engine.volume = 0f;
-            boost.volume = 0f;
             ambient.volume = 0.22f;
 
             for (int i = 0; i < PoolSize; i++)
             {
                 AudioSource source = Source("Spatial " + i, null, false);
-                source.spatialBlend = 1f;
-                source.rolloffMode = AudioRolloffMode.Linear;
-                source.minDistance = 8f;
-                source.maxDistance = 90f;
+                source.spatialBlend = 0.85f;
+                source.rolloffMode = AudioRolloffMode.Logarithmic;
+                source.minDistance = 7f;
+                source.maxDistance = 260f;
                 source.dopplerLevel = 0f;
+                source.spread = 60f;
                 pool.Add(source);
             }
+
+            AudioClip trafficEngine = SynthClips.Clip("Traffic engine", SynthClips.RenderTrafficEngine(61), true);
+            for (int i = 0; i < TrafficVoices; i++)
+            {
+                AudioSource voice = Source("Traffic voice " + i, trafficEngine, true);
+                voice.spatialBlend = 1f;
+                voice.rolloffMode = AudioRolloffMode.Logarithmic;
+                voice.minDistance = 3.5f;
+                voice.maxDistance = 90f;
+                voice.dopplerLevel = 1.3f;
+                voice.volume = 0f;
+                voice.time = UnityEngine.Random.Range(0f, trafficEngine.length * 0.9f);
+                trafficVoices.Add(voice);
+                trafficAssigned.Add(null);
+            }
+
+            GameObject reverbObject = new GameObject("Reverb");
+            reverbObject.transform.SetParent(transform, false);
+            reverbObject.transform.position = new Vector3(0f, 0f, -50f);
+            reverb = reverbObject.AddComponent<AudioReverbZone>();
+            reverb.minDistance = 120f;
+            reverb.maxDistance = 400f;
+            reverb.reverbPreset = AudioReverbPreset.City;
+        }
+
+        /// <summary>Renders every buffer in parallel, then wraps them as clips on the main thread.</summary>
+        private void BuildClips()
+        {
+            var jobs = new List<Func<float[]>>();
+            int Add(Func<float[]> job) { jobs.Add(job); return jobs.Count - 1; }
+            int[] light = new int[5], heavy = new int[4], glass = new int[3], debris = new int[2], blasts = new int[2], pops = new int[3];
+            for (int i = 0; i < light.Length; i++) { int seed = 101 + i * 13; light[i] = Add(() => SynthClips.RenderImpact(seed, false)); }
+            for (int i = 0; i < heavy.Length; i++) { int seed = 202 + i * 17; heavy[i] = Add(() => SynthClips.RenderImpact(seed, true)); }
+            for (int i = 0; i < glass.Length; i++) { int seed = 303 + i * 7; glass[i] = Add(() => SynthClips.RenderGlass(seed)); }
+            for (int i = 0; i < debris.Length; i++) { int seed = 350 + i * 5; debris[i] = Add(() => SynthClips.RenderDebris(seed)); }
+            for (int i = 0; i < blasts.Length; i++) { int seed = 404 + i * 11; blasts[i] = Add(() => SynthClips.RenderExplosion(seed)); }
+            for (int i = 0; i < pops.Length; i++) { int seed = 500 + i * 3; pops[i] = Add(() => SynthClips.RenderBackfire(seed)); }
+            int slow = Add(SynthClips.RenderSlowMotion);
+            int clickJob = Add(SynthClips.RenderClick);
+            int tick = Add(() => SynthClips.RenderTick(1500f));
+            int ready = Add(SynthClips.RenderReadyBeep);
+            int hornJob = Add(() => SynthClips.RenderHorn(false));
+            int airHornJob = Add(() => SynthClips.RenderHorn(true));
+            int launchJob = Add(SynthClips.RenderLaunch);
+            int blowJob = Add(SynthClips.RenderBlowOff);
+            int thudJob = Add(SynthClips.RenderThud);
+            int heartJob = Add(SynthClips.RenderHeartbeat);
+            int perfectJob = Add(() => SynthClips.RenderChime(new[] { 659f, 988f }, 0.09f, 1.0f));
+            int bonusJob = Add(() => SynthClips.RenderChime(new[] { 1047f, 1319f }, 0.07f, 0.7f, 6f));
+            int targetJob = Add(() => SynthClips.RenderChime(new[] { 784f, 1047f, 1319f, 1568f }, 0.08f, 1.2f, 3.5f));
+            int failJob = Add(() => SynthClips.RenderFail(230f, 110f, 0.5f));
+            int goldJob = Add(() => SynthClips.RenderChime(new[] { 523f, 659f, 784f, 1047f, 1319f }, 0.12f, 1.9f, 2.6f));
+            int silverJob = Add(() => SynthClips.RenderChime(new[] { 523f, 659f, 784f }, 0.13f, 1.4f, 3.2f));
+            int bronzeJob = Add(() => SynthClips.RenderChime(new[] { 523f, 659f }, 0.14f, 1.1f, 3.8f));
+            int noneJob = Add(() => SynthClips.RenderFail(300f, 170f, 0.9f));
+
+            var buffers = new float[jobs.Count][];
+            Parallel.For(0, jobs.Count, i => buffers[i] = jobs[i]());
+
+            AudioClip Make(int index, string name) => SynthClips.Clip(name, buffers[index]);
+            impactsLight = Array.ConvertAll(light, i => Make(i, "Impact light"));
+            impactsHeavy = Array.ConvertAll(heavy, i => Make(i, "Impact heavy"));
+            glassClips = Array.ConvertAll(glass, i => Make(i, "Glass"));
+            debrisClips = Array.ConvertAll(debris, i => Make(i, "Debris"));
+            explosions = Array.ConvertAll(blasts, i => Make(i, "Explosion"));
+            backfires = Array.ConvertAll(pops, i => Make(i, "Backfire"));
+            slowMotion = Make(slow, "Slow motion");
+            click = Make(clickJob, "Click");
+            tickHigh = Make(tick, "Tick");
+            readyBeep = Make(ready, "Ready");
+            horn = Make(hornJob, "Horn");
+            airHorn = Make(airHornJob, "Air horn");
+            launch = Make(launchJob, "Launch");
+            blowOff = Make(blowJob, "Blow-off");
+            thud = Make(thudJob, "Thud");
+            heartbeat = Make(heartJob, "Heartbeat");
+            perfect = Make(perfectJob, "Perfect launch");
+            bonus = Make(bonusJob, "Bonus");
+            targetDown = Make(targetJob, "Target down");
+            fail = Make(failJob, "Bad start");
+            medalGold = Make(goldJob, "Gold");
+            medalSilver = Make(silverJob, "Silver");
+            medalBronze = Make(bronzeJob, "Bronze");
+            medalNone = Make(noneJob, "No medal");
+        }
+
+        private AudioSource Loop(string label, AudioClip clip)
+        {
+            AudioSource source = Source(label, clip, true);
+            source.volume = 0f;
+            return source;
         }
 
         private AudioSource Source(string label, AudioClip clip, bool loop)
@@ -136,38 +253,141 @@ namespace Crashout.Presentation
             float dt = Time.unscaledDeltaTime;
             GamePhase phase = session.Phase;
             ArcadeVehicleController player = session.Player;
-            float speed = player != null ? player.SpeedMetresPerSecond : 0f;
-            bool boosting = player != null && player.IsBoosting && phase == GamePhase.Driving;
+            if (player == null) return;
+            float speed = player.SpeedMetresPerSecond;
+            bool driving = phase == GamePhase.Driving;
+            bool crashing = phase == GamePhase.Crash || phase == GamePhase.SettleDelay;
+            bool boosting = player.IsBoosting && driving;
+            bool grounded = player.WheelsGrounded > 0;
+            bool impact = session.IsImpactTime;
 
-            float engineVolume = phase == GamePhase.Driving ? 0.5f : phase == GamePhase.ReadyCheck ? 0.2f : 0f;
-            // While waiting to launch the engine revs with the swing meter, like a driver blipping the throttle.
-            float enginePitch = phase == GamePhase.ReadyCheck
-                ? 0.8f + 0.6f * session.LaunchMeter
-                : Mathf.Lerp(0.8f, 2.5f, Mathf.Clamp01(speed / 30f)) + (boosting ? 0.3f : 0f);
-            engine.volume = Mathf.MoveTowards(engine.volume, engineVolume, 2f * dt);
-            engine.pitch = Mathf.Lerp(engine.pitch, enginePitch, 8f * dt);
-            boost.volume = Mathf.MoveTowards(boost.volume, boosting ? 0.45f : 0f, 3f * dt);
-            ambient.volume = Mathf.MoveTowards(ambient.volume, session.IsImpactTime ? 0.08f : 0.22f, 1.5f * dt);
+            UpdateEngine(phase, player, speed, boosting, grounded, dt);
+
+            float windTarget = (driving || crashing) ? Mathf.Pow(Mathf.Clamp01((speed - 6f) / 40f), 1.3f) * 0.55f : 0f;
+            wind.volume = Mathf.MoveTowards(wind.volume, windTarget, dt * 2f);
+            wind.pitch = 0.75f + speed / 55f;
+            road.volume = Mathf.MoveTowards(road.volume, driving && grounded ? Mathf.Clamp01(speed / 32f) * 0.32f : 0f, dt * 3f);
+            road.pitch = 0.6f + speed / 45f;
+
+            float lateral = Mathf.Abs(player.LateralSlip);
+            float squealTarget = driving && grounded ? Mathf.Clamp01((lateral - 2.4f) / 6f) * 0.5f + (player.AppliedBrake > 0.5f && speed > 8f ? 0.3f : 0f) : 0f;
+            squeal.volume = Mathf.MoveTowards(squeal.volume, squealTarget, dt * 6f);
+            squeal.pitch = 0.9f + Mathf.Clamp01(lateral / 12f) * 0.25f;
+
+            bool sliding = crashing && speed > 2f && Physics.Raycast(player.transform.position, Vector3.down, 1.2f, 1 << 0, QueryTriggerInteraction.Ignore);
+            scrape.volume = Mathf.MoveTowards(scrape.volume, sliding ? Mathf.Clamp01(speed / 12f) * 0.55f : 0f, dt * 5f);
+            scrape.pitch = (impact ? 0.7f : 0.9f) + speed / 40f;
+
+            boost.volume = Mathf.MoveTowards(boost.volume, boosting ? 0.42f : 0f, dt * 3f);
+            boost.pitch = 0.9f + speed / 90f;
+            if (wasBoosting && !boosting && driving) PlayAt(blowOff, player.transform.position, 0.55f, UnityEngine.Random.Range(0.95f, 1.1f));
+            wasBoosting = boosting;
+
+            ambient.volume = Mathf.MoveTowards(ambient.volume, impact ? 0.06f : 0.2f, 1.5f * dt);
+
+            // Tension: drone and heartbeat build as the junction approaches.
+            float closeness = driving ? Mathf.Clamp01(1f - session.JunctionEta / 6f) : 0f;
+            float tensionTarget = phase == GamePhase.ReadyCheck ? 0.12f : driving ? Mathf.Lerp(0.12f, 0.5f, closeness) : 0f;
+            tension.volume = Mathf.MoveTowards(tension.volume, tensionTarget, dt * (driving || phase == GamePhase.ReadyCheck ? 0.8f : 3f));
+            tension.pitch = 1f + closeness * 0.06f;
+            if (driving && closeness > 0.15f && Time.unscaledTime >= nextHeartbeat)
+            {
+                ui.PlayOneShot(heartbeat, Mathf.Lerp(0.25f, 0.7f, closeness));
+                nextHeartbeat = Time.unscaledTime + Mathf.Lerp(0.95f, 0.4f, closeness);
+            }
+
+            // Impact time: the world goes underwater.
+            if (listenerFilter != null)
+            {
+                float cutoff = impact ? 900f : 22000f;
+                listenerFilter.cutoffFrequency = Mathf.Lerp(listenerFilter.cutoffFrequency, cutoff, 1f - Mathf.Exp(-(impact ? 14f : 3f) * dt));
+            }
+
+            if (driving)
+            {
+                int wheels = player.WheelsGrounded;
+                if (wheels == 0 && lastGrounded > 0) airborneSince = Time.unscaledTime;
+                if (wheels > 0 && lastGrounded == 0 && Time.unscaledTime - airborneSince > 0.25f)
+                {
+                    PlayAt(thud, player.transform.position, 0.9f, UnityEngine.Random.Range(0.9f, 1.05f));
+                    PlayAt(impactsLight[UnityEngine.Random.Range(0, impactsLight.Length)], player.transform.position, 0.35f, 1.3f);
+                }
+                lastGrounded = wheels;
+            }
 
             if (phase == GamePhase.ReadyCheck)
             {
                 float meter = session.LaunchMeter;
-                if (lastMeter < CrashoutGameSession.LaunchZoneMin && meter >= CrashoutGameSession.LaunchZoneMin)
-                {
-                    ui.PlayOneShot(tickHigh, 0.55f);
-                }
+                if (lastMeter < CrashoutGameSession.LaunchZoneMin && meter >= CrashoutGameSession.LaunchZoneMin) ui.PlayOneShot(tickHigh, 0.5f);
                 lastMeter = meter;
             }
 
             bool canCrashbreak = session.CanCrashbreak;
-            if (canCrashbreak && !couldCrashbreak) ui.PlayOneShot(readyBeep, 0.6f);
+            if (canCrashbreak && !couldCrashbreak) ui.PlayOneShot(readyBeep, 0.55f);
             couldCrashbreak = canCrashbreak;
 
-            if (phase == GamePhase.Driving && Time.unscaledTime >= nextHornScan)
+            if (driving && Time.unscaledTime >= nextHornScan)
             {
                 nextHornScan = Time.unscaledTime + 0.15f;
                 HonkAtThePlayer();
             }
+            UpdateTrafficVoices(phase, dt);
+        }
+
+        /// <summary>Six-speed gearbox model: road speed sets RPM; shifts cut the throttle and can pop.</summary>
+        private void UpdateEngine(GamePhase phase, ArcadeVehicleController player, float speed, bool boosting, bool grounded, float dt)
+        {
+            float targetRpm, load, volume;
+            if (phase == GamePhase.ReadyCheck)
+            {
+                // Blipping the throttle with the swing meter.
+                float meter = session.LaunchMeter;
+                targetRpm = 1300f + meter * meter * 5600f;
+                load = 0.25f + meter * 0.75f;
+                volume = 0.55f;
+                gear = 0;
+            }
+            else if (phase == GamePhase.Driving)
+            {
+                float wheelRpm = speed / (2f * Mathf.PI * ArcadeVehicleController.WheelRadius) * 60f;
+                float geared = wheelRpm * GearRatios[gear] * FinalDrive;
+                bool shifting = Time.unscaledTime < shiftUntil;
+                if (!shifting && geared > 6900f && gear < GearRatios.Length - 1)
+                {
+                    gear++;
+                    shiftUntil = Time.unscaledTime + 0.16f;
+                    if (UnityEngine.Random.value < 0.6f) PlayAt(backfires[UnityEngine.Random.Range(0, backfires.Length)], player.transform.position - player.transform.forward * 1.7f, 0.5f, UnityEngine.Random.Range(0.9f, 1.15f));
+                }
+                else if (!shifting && geared < 3000f && gear > 0)
+                {
+                    gear--;
+                    shiftUntil = Time.unscaledTime + 0.12f;
+                }
+                geared = wheelRpm * GearRatios[gear] * FinalDrive;
+                if (!grounded) geared += 1800f; // Wheels spin free in the air.
+                targetRpm = Mathf.Clamp(Mathf.Max(IdleRpm + 600f, geared), IdleRpm, RedlineRpm);
+                load = shifting ? 0f : Mathf.Max(player.AppliedThrottle, boosting ? 1f : 0f) * (player.AppliedBrake > 0.5f ? 0f : 1f);
+                if (shifting) targetRpm = Mathf.Max(IdleRpm, engineRpm - 1600f);
+                volume = 0.85f;
+            }
+            else if (phase == GamePhase.Crash || phase == GamePhase.SettleDelay)
+            {
+                targetRpm = 700f;
+                load = 0f;
+                volume = 0f;
+            }
+            else
+            {
+                targetRpm = IdleRpm;
+                load = 0f;
+                volume = 0f;
+            }
+
+            engineRpm = Mathf.Lerp(engineRpm, targetRpm, 1f - Mathf.Exp(-12f * dt));
+            engine.Rpm = targetRpm;
+            engine.Load = load;
+            engine.Boost = boosting ? 1f : 0f;
+            engine.Volume = Mathf.MoveTowards(engine.Volume, volume, dt * (volume > engine.Volume ? 3f : 1.6f));
         }
 
         // Cars the player is about to meet sometimes sound their horn, once each.
@@ -182,13 +402,55 @@ namespace Crashout.Presentation
                 if (vehicle == null || vehicle.IsPlayerVehicle || honked.Contains(vehicle.EntityId)) continue;
                 TrafficVehicle traffic = vehicle.GetComponent<TrafficVehicle>();
                 if (traffic == null || !traffic.DriveEnabled) continue;
-                if (Vector3.Distance(vehicle.transform.position, playerPosition) > 13f) continue;
+                if (Vector3.Distance(vehicle.transform.position, playerPosition) > 16f) continue;
                 honked.Add(vehicle.EntityId);
-                if (Random.value < 0.4f)
+                if (UnityEngine.Random.value < 0.45f)
                 {
-                    PlayAt(horn, vehicle.transform.position, 0.5f, Random.Range(0.85f, 1.25f));
+                    bool heavy = vehicle.Class == VehicleClass.Bus || vehicle.Class == VehicleClass.Tanker;
+                    PlayAt(heavy ? airHorn : horn, vehicle.transform.position, heavy ? 0.8f : 0.6f, UnityEngine.Random.Range(0.94f, 1.06f));
                 }
             }
+        }
+
+        /// <summary>The nearest moving traffic gets an engine voice that follows it, so cars whoosh past with Doppler.</summary>
+        private void UpdateTrafficVoices(GamePhase phase, float dt)
+        {
+            Transform listener = listenerFilter != null ? listenerFilter.transform : Camera.main != null ? Camera.main.transform : null;
+            bool active = phase == GamePhase.Driving || phase == GamePhase.Crash || phase == GamePhase.SettleDelay;
+            if (listener != null && active && Time.unscaledTime >= nextTrafficScan)
+            {
+                nextTrafficScan = Time.unscaledTime + 0.25f;
+                var candidates = new List<DamageableVehicle>();
+                foreach (DamageableVehicle vehicle in session.Vehicles)
+                {
+                    if (vehicle == null || vehicle.IsPlayerVehicle) continue;
+                    TrafficVehicle traffic = vehicle.GetComponent<TrafficVehicle>();
+                    if (traffic != null && traffic.DriveEnabled) candidates.Add(vehicle);
+                }
+                Vector3 ear = listener.position;
+                candidates.Sort((a, b) => (a.transform.position - ear).sqrMagnitude.CompareTo((b.transform.position - ear).sqrMagnitude));
+                for (int i = 0; i < trafficVoices.Count; i++) trafficAssigned[i] = i < candidates.Count ? candidates[i] : null;
+            }
+            for (int i = 0; i < trafficVoices.Count; i++)
+            {
+                AudioSource voice = trafficVoices[i];
+                DamageableVehicle car = active ? trafficAssigned[i] : null;
+                TrafficVehicle traffic = car != null ? car.GetComponent<TrafficVehicle>() : null;
+                bool live = car != null && traffic != null && traffic.DriveEnabled;
+                if (live)
+                {
+                    voice.transform.position = car.transform.position;
+                    bool heavy = car.Class == VehicleClass.Bus || car.Class == VehicleClass.Tanker;
+                    voice.pitch = (heavy ? 0.55f : 0.85f) + car.Body.linearVelocity.magnitude / (heavy ? 40f : 28f);
+                }
+                voice.volume = Mathf.MoveTowards(voice.volume, live ? 0.45f : 0f, dt * 2f);
+            }
+        }
+
+        private void ApplyReverb()
+        {
+            if (reverb == null || session == null || session.Runway == null) return;
+            reverb.reverbPreset = session.Runway.Style == RunwayStyle.MountainPass ? AudioReverbPreset.Mountains : AudioReverbPreset.City;
         }
 
         // ------------------------------------------------------------------ events
@@ -196,39 +458,50 @@ namespace Crashout.Presentation
         private void OnScore(ScoreEvent scoreEvent)
         {
             if (scoreEvent.Amount <= 0 || !session.TryGetVehiclePosition(scoreEvent.EntityId, out Vector3 position)) return;
-            bool heavy = false;
+            bool heavy = scoreEvent.RelativeSpeed > 12f;
             IReadOnlyList<DamageableVehicle> vehicles = session.Vehicles;
             for (int i = 0; i < vehicles.Count; i++)
             {
                 if (vehicles[i] != null && vehicles[i].EntityId == scoreEvent.EntityId)
                 {
-                    heavy = vehicles[i].Class == VehicleClass.Bus || vehicles[i].Class == VehicleClass.Tanker;
+                    heavy |= vehicles[i].Class == VehicleClass.Bus || vehicles[i].Class == VehicleClass.Tanker;
                     break;
                 }
             }
 
-            float volume = Mathf.Clamp(0.35f + scoreEvent.RelativeSpeed / 14f, 0.35f, 1f);
-            PlayAt(heavy ? crunchHeavy : crunchLight, position, volume, Random.Range(heavy ? 0.85f : 0.92f, heavy ? 1f : 1.12f));
-            if (scoreEvent.Amount > 1800)
+            float slow = session.IsImpactTime ? 0.78f : 1f;
+            float volume = Mathf.Clamp(0.4f + scoreEvent.RelativeSpeed / 14f, 0.4f, 1f);
+            AudioClip[] bank = heavy ? impactsHeavy : impactsLight;
+            PlayAt(bank[UnityEngine.Random.Range(0, bank.Length)], position, volume, UnityEngine.Random.Range(0.92f, 1.08f) * slow);
+            if (scoreEvent.RelativeSpeed > 5.5f)
             {
-                PlayAt(glass, position + Vector3.up, volume * 0.8f, Random.Range(0.9f, 1.2f));
+                PlayAt(glassClips[UnityEngine.Random.Range(0, glassClips.Length)], position + Vector3.up, volume * 0.75f, UnityEngine.Random.Range(0.92f, 1.1f) * slow);
             }
+            if (scoreEvent.RelativeSpeed > 9f) StartCoroutine(Delayed(debrisClips[UnityEngine.Random.Range(0, debrisClips.Length)], position, volume * 0.6f, 0.18f));
+        }
+
+        private IEnumerator Delayed(AudioClip clip, Vector3 position, float volume, float delay)
+        {
+            yield return new WaitForSecondsRealtime(delay);
+            PlayAt(clip, position, volume, UnityEngine.Random.Range(0.9f, 1.1f));
         }
 
         private void OnExploded(Vector3 centre, float radius, bool byPlayer)
         {
             float size = Mathf.Clamp01(radius / 17f);
-            PlayAt(explosion, centre, 1f, Mathf.Lerp(1.15f, 0.8f, size));
-            // Always audible regardless of where the camera is.
-            ui.PlayOneShot(explosion, Mathf.Lerp(0.35f, 0.6f, size));
+            AudioClip blast = explosions[UnityEngine.Random.Range(0, explosions.Length)];
+            PlayAt(blast, centre, 1f, Mathf.Lerp(1.1f, 0.82f, size));
+            // Always felt, wherever the camera is.
+            ui.PlayOneShot(blast, Mathf.Lerp(0.35f, 0.65f, size));
+            StartCoroutine(Delayed(debrisClips[0], centre, 0.7f, 0.5f));
         }
 
         private void OnBonus(string label, int amount, Vector3 position)
         {
-            if (label == "PERFECT LAUNCH") ui.PlayOneShot(perfect, 0.8f);
-            else if (label == "TARGET DOWN") ui.PlayOneShot(targetDown, 0.85f);
-            else if (label == "SLOW START" || label == "BAD START") ui.PlayOneShot(fail, 0.5f);
-            else if (amount > 0) ui.PlayOneShot(bonus, 0.7f);
+            if (label == "PERFECT LAUNCH") ui.PlayOneShot(perfect, 0.7f);
+            else if (label == "TARGET DOWN") ui.PlayOneShot(targetDown, 0.8f);
+            else if (label == "SLOW START" || label == "BAD START") ui.PlayOneShot(fail, 0.45f);
+            else if (amount > 0) ui.PlayOneShot(bonus, 0.6f);
         }
 
         private void OnPhase(GamePhase phase)
@@ -238,16 +511,20 @@ namespace Crashout.Presentation
                 case GamePhase.ReadyCheck:
                     honked.Clear();
                     lastMeter = 0f;
+                    gear = 0;
+                    lastGrounded = 4;
+                    ApplyReverb();
                     break;
                 case GamePhase.Driving:
-                    ui.PlayOneShot(whoosh, 0.7f);
+                    ui.PlayOneShot(launch, 0.75f);
+                    nextHeartbeat = Time.unscaledTime + 0.8f;
                     break;
                 case GamePhase.Crash:
-                    ui.PlayOneShot(slowMotion, 0.8f);
+                    ui.PlayOneShot(slowMotion, 0.85f);
                     break;
                 case GamePhase.Results:
                     CrashMedal medal = session.Medal;
-                    ui.PlayOneShot(medal == CrashMedal.Gold ? medalGold : medal == CrashMedal.Silver ? medalSilver : medal == CrashMedal.Bronze ? medalBronze : medalNone, 0.9f);
+                    ui.PlayOneShot(medal == CrashMedal.Gold ? medalGold : medal == CrashMedal.Silver ? medalSilver : medal == CrashMedal.Bronze ? medalBronze : medalNone, 0.85f);
                     break;
             }
         }
@@ -255,6 +532,7 @@ namespace Crashout.Presentation
         // Plays a positional one-shot, reusing the oldest source when all are busy.
         private void PlayAt(AudioClip clip, Vector3 position, float volume, float pitch)
         {
+            if (clip == null) return;
             AudioSource chosen = null;
             for (int i = 0; i < pool.Count; i++)
             {

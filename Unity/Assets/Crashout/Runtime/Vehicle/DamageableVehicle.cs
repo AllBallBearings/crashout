@@ -67,7 +67,8 @@ namespace Crashout.Vehicle
             float impulse = collision.impulse.magnitude / 1000f;
             float relativeSpeed = collision.relativeVelocity.magnitude;
             damage += impulse * 0.04f + relativeSpeed * 0.6f;
-            session.ReportVehicleCollision(this, otherId, impulse, relativeSpeed);
+            Vector3 normal = collision.contactCount > 0 ? collision.GetContact(0).normal : Vector3.zero;
+            session.ReportVehicleCollision(this, otherId, impulse, relativeSpeed, normal);
         }
     }
 }

@@ -1,4 +1,3 @@
-using Crashout.Vehicle;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -6,104 +5,218 @@ using UnityEngine.Rendering.Universal;
 namespace Crashout.Presentation
 {
     /// <summary>
-    /// Procedural stylised art: golden-hour lighting, post-processing, a lit city
-    /// and chunky toy-like cars. Everything is generated at runtime so the project
-    /// needs no imported assets.
+    /// Procedural art direction with a realistic target: physically based materials driven by
+    /// synthesized albedo / normal / mask textures, clear-coated car paint, a late-afternoon sun with
+    /// soft cascaded shadows, sky-lit ambient, real-time reflections, a cloud layer, and a filmic
+    /// post stack. Everything is generated at runtime, so the project needs no imported assets.
+    ///
+    /// The class is split across files: this one holds materials, sky, light and post-processing;
+    /// CrashoutArt.City builds the junction, CrashoutArt.Vehicles the cars and CrashoutArt.Runway
+    /// the approach roads and their landscapes.
     /// </summary>
-    public sealed class CrashoutArt
+    public sealed partial class CrashoutArt
     {
         public static readonly Color[] TrafficPalette =
         {
-            new Color(0.10f, 0.62f, 0.66f),
-            new Color(0.98f, 0.70f, 0.12f),
-            new Color(0.86f, 0.18f, 0.20f),
-            new Color(0.30f, 0.38f, 0.86f),
-            new Color(0.92f, 0.88f, 0.78f),
-            new Color(0.34f, 0.68f, 0.30f),
-            new Color(0.80f, 0.34f, 0.74f)
+            new Color(0.08f, 0.16f, 0.32f),  // deep blue
+            new Color(0.72f, 0.72f, 0.74f),  // silver
+            new Color(0.55f, 0.06f, 0.07f),  // burgundy
+            new Color(0.93f, 0.93f, 0.91f),  // white
+            new Color(0.06f, 0.06f, 0.07f),  // black
+            new Color(0.2f, 0.34f, 0.3f),    // forest green
+            new Color(0.42f, 0.43f, 0.45f),  // graphite
+            new Color(0.78f, 0.6f, 0.36f),   // champagne
+            new Color(0.1f, 0.42f, 0.62f)    // ocean blue
         };
 
-        private static readonly Color[] FacadeTints =
-        {
-            new Color(0.93f, 0.80f, 0.66f), new Color(0.72f, 0.80f, 0.88f),
-            new Color(0.88f, 0.62f, 0.56f), new Color(0.70f, 0.82f, 0.72f),
-            new Color(0.84f, 0.84f, 0.80f), new Color(0.86f, 0.74f, 0.88f),
-            new Color(0.95f, 0.88f, 0.62f), new Color(0.62f, 0.68f, 0.80f)
-        };
+        private static Shader litShader;
+        private static Shader complexShader;
 
-        private const float FacadeSpanX = 7.2f;
-        private const float FacadeSpanY = 12f;
-
+        // Shared surfaces.
         private readonly Material asphalt;
-        private readonly Material sidewalk;
+        private readonly Material roadPainted;
+        private readonly Material paving;
+        private readonly Material concrete;
+        private readonly Material concreteDark;
         private readonly Material ground;
         private readonly Material lanePaint;
         private readonly Material whitePaint;
         private readonly Material roofMaterial;
+        private readonly Material[] facades;
+        private readonly Material glassTower;
+        private readonly Material shopGlass;
+        private readonly Material awningMaterial;
+        private readonly Material rock;
+        private readonly Material bark;
+        private readonly Material foliage;
+        private readonly Material conifer;
+        private readonly Material water;
+        private readonly Material steel;
+        private readonly Material darkMetal;
+        private readonly Material hazard;
+        private readonly Material signGreen;
+
+        // Vehicle surfaces.
         private readonly Material glass;
+        private readonly Material shatteredGlass;
         private readonly Material rubber;
-        private readonly Material rim;
+        private readonly Material alloy;
+        private readonly Material chrome;
         private readonly Material trim;
         private readonly Material underbody;
+        private readonly Material brakeDisc;
+        private readonly Material caliper;
         private readonly Material headlight;
-        private readonly Material taillight;
-        private readonly Material neon;
-        private readonly Material shopGlow;
+        private readonly Material taillightBase;
+        private readonly Material indicatorBase;
+        private readonly Material grille;
+        private readonly Material[] plates;
+        private readonly Material interior;
+
+        // Light sources and markers.
         private readonly Material lampGlow;
-        private readonly Material trunk;
+        private readonly Material signalRed;
+        private readonly Material signalAmber;
+        private readonly Material signalGreen;
+        private readonly Material signalOff;
         private readonly Material targetGlow;
-        private readonly Material[] leaves;
-        private readonly Material[] facades;
-        private readonly Texture2D facadeAlbedo;
-        private readonly Texture2D facadeEmission;
-        private readonly Texture2D grit;
+        private readonly Material neon;
+
+        private readonly ProceduralTextures.SurfaceSet groundDetail;
         private Material skybox;
 
         public Material PlayerPaint { get; }
+        public Material ShatteredGlass => shatteredGlass;
+        public Light Sun { get; private set; }
+        public ReflectionProbe Reflections { get; private set; }
 
         public CrashoutArt()
         {
-            grit = MakeGrit();
-            MakeFacadeTextures(out facadeAlbedo, out facadeEmission);
+            litShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            complexShader = Shader.Find("Universal Render Pipeline/Complex Lit");
 
-            asphalt = Lit("Asphalt", new Color(0.19f, 0.2f, 0.23f), 0f, 0.5f, grit, 1f / 6f);
-            sidewalk = Lit("Sidewalk", new Color(0.6f, 0.62f, 0.66f), 0f, 0.28f, grit, 1f / 4f);
-            ground = Lit("Ground", new Color(0.3f, 0.36f, 0.32f), 0f, 0.1f, grit, 1f / 8f);
-            lanePaint = Lit("Lane paint", new Color(0.97f, 0.86f, 0.46f), 0f, 0.5f);
-            whitePaint = Lit("Road white", new Color(0.93f, 0.92f, 0.86f), 0f, 0.5f);
-            roofMaterial = Lit("Roof", new Color(0.3f, 0.3f, 0.32f), 0f, 0.2f, grit, 1f / 4f);
-            glass = Lit("Car glass", new Color(0.08f, 0.14f, 0.2f), 0.2f, 0.92f);
-            rubber = Lit("Tyre", new Color(0.04f, 0.04f, 0.045f), 0f, 0.35f);
-            rim = Lit("Rim", new Color(0.82f, 0.84f, 0.88f), 0.9f, 0.75f);
-            trim = Lit("Trim", new Color(0.09f, 0.09f, 0.1f), 0f, 0.4f);
-            underbody = Lit("Underbody", new Color(0.03f, 0.03f, 0.035f), 0f, 0.1f);
-            headlight = Lit("Headlight", new Color(1f, 0.96f, 0.82f), 0f, 0.9f, null, 1f, new Color(4.2f, 3.7f, 2.6f));
-            taillight = Lit("Taillight", new Color(0.8f, 0.05f, 0.05f), 0f, 0.8f, null, 1f, new Color(3.2f, 0.18f, 0.12f));
-            neon = Lit("Neon", new Color(0.1f, 0.9f, 1f), 0f, 0.8f, null, 1f, new Color(0.2f, 3.4f, 4.4f));
-            shopGlow = Lit("Shop window", new Color(0.1f, 0.08f, 0.06f), 0f, 0.7f, null, 1f, new Color(0.9f, 0.58f, 0.28f));
-            lampGlow = Lit("Lamp", new Color(1f, 0.9f, 0.7f), 0f, 0.5f, null, 1f, new Color(2.2f, 1.7f, 1f));
-            targetGlow = Lit("Target", new Color(1f, 0.15f, 0.1f), 0f, 0.6f, null, 1f, new Color(5f, 0.35f, 0.25f));
-            trunk = Lit("Trunk", new Color(0.32f, 0.22f, 0.15f), 0f, 0.15f);
-            PlayerPaint = Lit("Crashout orange", new Color(1f, 0.27f, 0.02f), 0.05f, 0.55f);
+            ProceduralTextures.SurfaceSet asphaltSet = ProceduralTextures.Asphalt();
+            ProceduralTextures.SurfaceSet roadSet = ProceduralTextures.PaintedRoad();
+            ProceduralTextures.SurfaceSet pavingSet = ProceduralTextures.Paving();
+            ProceduralTextures.SurfaceSet concreteSet = ProceduralTextures.Concrete();
+            ProceduralTextures.SurfaceSet rockSet = ProceduralTextures.Rock();
+            ProceduralTextures.SurfaceSet foliageSet = ProceduralTextures.Foliage();
+            ProceduralTextures.SurfaceSet tyreSet = ProceduralTextures.Tyre();
+            ProceduralTextures.SurfaceSet grilleSet = ProceduralTextures.Grille();
+            groundDetail = ProceduralTextures.GroundDetail();
 
-            leaves = new[]
-            {
-                Lit("Leaves A", new Color(0.3f, 0.62f, 0.25f), 0f, 0.2f),
-                Lit("Leaves B", new Color(0.42f, 0.72f, 0.3f), 0f, 0.2f),
-                Lit("Leaves C", new Color(0.88f, 0.52f, 0.2f), 0f, 0.2f)
-            };
-            facades = new Material[FacadeTints.Length];
+            asphalt = Surface("Asphalt", asphaltSet, 4f, Color.white, 1f, 0.9f);
+            roadPainted = Surface("Runway road", roadSet, 1f, Color.white, 1f, 0.9f);
+            paving = Surface("Paving", pavingSet, 3f, Color.white, 1f, 0.8f);
+            concrete = Surface("Concrete", concreteSet, 4f, new Color(1f, 0.98f, 0.95f), 1f, 0.8f);
+            concreteDark = Surface("Concrete dark", concreteSet, 4f, new Color(0.62f, 0.62f, 0.62f), 1f, 0.8f);
+            ground = Surface("City ground", pavingSet, 3f, new Color(0.62f, 0.6f, 0.58f), 1f, 0.6f);
+            rock = Surface("Rock", rockSet, 8f, Color.white, 1f, 1.2f);
+            bark = Surface("Bark", rockSet, 1.5f, new Color(0.55f, 0.4f, 0.3f), 0.6f, 1.4f);
+            foliage = Surface("Foliage", foliageSet, 2.2f, Color.white, 1f, 1f);
+            conifer = Surface("Conifer", foliageSet, 1.6f, new Color(0.5f, 0.68f, 0.55f), 1f, 1f);
+            rubber = Surface("Tyre", tyreSet, 1f, Color.white, 1f, 1f);
+            grille = Surface("Grille", grilleSet, 0.25f, Color.white, 1f, 1f);
+
+            lanePaint = Lit("Lane paint", new Color(0.86f, 0.64f, 0.14f), 0f, 0.35f);
+            whitePaint = Lit("Road white", new Color(0.85f, 0.85f, 0.82f), 0f, 0.35f);
+            roofMaterial = Surface("Roof", concreteSet, 4f, new Color(0.38f, 0.37f, 0.36f), 0.8f, 1f);
+
+            facades = new Material[6];
             for (int i = 0; i < facades.Length; i++)
             {
-                facades[i] = Lit("Facade " + i, FacadeTints[i], 0f, 0.3f, facadeAlbedo, 1f, new Color(1f, 0.82f, 0.5f) * 1.4f, facadeEmission);
-                facades[i].SetTextureScale("_BaseMap", new Vector2(1f / FacadeSpanX, 1f / FacadeSpanY));
-                facades[i].SetTextureScale("_EmissionMap", new Vector2(1f / FacadeSpanX, 1f / FacadeSpanY));
+                bool brick = i % 2 == 0;
+                ProceduralTextures.SurfaceSet set = ProceduralTextures.Facade(brick, 200 + i * 17, out Texture2D emission);
+                Color tint = brick ? Color.Lerp(Color.white, new Color(0.85f, 0.8f, 0.78f), i * 0.2f)
+                    : new[] { new Color(0.95f, 0.9f, 0.82f), new Color(0.82f, 0.86f, 0.9f), new Color(0.92f, 0.82f, 0.74f) }[i / 2 % 3];
+                facades[i] = Surface("Facade " + i, set, 1f, tint, 1f, 1f);
+                facades[i].SetTextureScale("_BaseMap", new Vector2(1f / 7.2f, 1f / 12f));
+                Emissive(facades[i], new Color(1f, 0.78f, 0.5f) * 1.1f, emission);
             }
+            glassTower = Lit("Curtain wall", new Color(0.12f, 0.17f, 0.22f), 0.85f, 0.94f);
+            shopGlass = Lit("Shop glass", Color.white, 0.2f, 0.95f);
+            shopGlass.SetTexture("_BaseMap", ProceduralTextures.Shopfront(7, out Texture2D shopGlow));
+            Emissive(shopGlass, new Color(1f, 0.74f, 0.45f) * 1.25f, shopGlow);
+            awningMaterial = Lit("Awning", new Color(0.32f, 0.08f, 0.07f), 0f, 0.25f);
+            water = Lit("Water", new Color(0.035f, 0.07f, 0.075f), 0.1f, 0.97f);
+            Normal(water, ProceduralTextures.WaterNormal(), 0.6f);
+            water.SetTextureScale("_BaseMap", new Vector2(1f / 12f, 1f / 12f));
+            steel = Lit("Galvanised steel", new Color(0.62f, 0.64f, 0.66f), 0.85f, 0.55f);
+            darkMetal = Lit("Dark metal", new Color(0.12f, 0.12f, 0.13f), 0.7f, 0.45f);
+            hazard = Lit("Hazard stripes", Color.white, 0f, 0.4f);
+            hazard.SetTexture("_BaseMap", HazardTexture());
+            hazard.SetTextureScale("_BaseMap", new Vector2(0.5f, 0.5f));
+            signGreen = Lit("Road sign", new Color(0.02f, 0.28f, 0.14f), 0.1f, 0.6f);
+            Emissive(signGreen, new Color(0.02f, 0.06f, 0.03f));
+
+            glass = Lit("Car glass", new Color(0.015f, 0.022f, 0.03f), 0.3f, 0.97f);
+            shatteredGlass = Lit("Shattered glass", new Color(0.32f, 0.36f, 0.38f), 0.15f, 0.55f);
+            Normal(shatteredGlass, ProceduralTextures.Rock(128, 5).Normal, 2f);
+            shatteredGlass.SetTextureScale("_BaseMap", new Vector2(3f, 3f));
+            alloy = Lit("Alloy", new Color(0.78f, 0.79f, 0.81f), 1f, 0.78f);
+            chrome = Lit("Chrome", new Color(0.92f, 0.92f, 0.93f), 1f, 0.94f);
+            trim = Lit("Trim", new Color(0.025f, 0.025f, 0.028f), 0f, 0.42f);
+            underbody = Lit("Underbody", new Color(0.02f, 0.02f, 0.022f), 0f, 0.15f);
+            brakeDisc = Lit("Brake disc", new Color(0.35f, 0.34f, 0.33f), 0.9f, 0.5f);
+            caliper = Paint(new Color(0.75f, 0.05f, 0.04f), false, "Caliper");
+            interior = Lit("Interior", new Color(0.03f, 0.03f, 0.03f), 0f, 0.2f);
+
+            Texture2D lens = ProceduralTextures.LampLens();
+            headlight = Lit("Headlight", new Color(0.85f, 0.88f, 0.9f), 0.2f, 0.96f);
+            Emissive(headlight, new Color(5f, 4.7f, 4.1f), lens);
+            taillightBase = Lit("Taillight", new Color(0.45f, 0.02f, 0.02f), 0f, 0.92f);
+            Emissive(taillightBase, new Color(1.4f, 0.04f, 0.02f), lens);
+            indicatorBase = Lit("Indicator", new Color(0.6f, 0.32f, 0.03f), 0f, 0.92f);
+            Emissive(indicatorBase, Color.black, lens);
+
+            plates = new Material[4];
+            for (int i = 0; i < plates.Length; i++)
+            {
+                plates[i] = Lit("Plate " + i, Color.white, 0.2f, 0.6f);
+                plates[i].SetTexture("_BaseMap", ProceduralTextures.Plate(i * 31 + 5));
+            }
+
+            lampGlow = Lit("Lamp", new Color(1f, 0.92f, 0.78f), 0f, 0.5f);
+            Emissive(lampGlow, new Color(6f, 4.8f, 3.2f));
+            signalRed = Lit("Signal red", new Color(0.4f, 0.02f, 0.02f), 0f, 0.9f);
+            Emissive(signalRed, new Color(6f, 0.25f, 0.12f));
+            signalAmber = Lit("Signal amber", new Color(0.4f, 0.25f, 0.02f), 0f, 0.9f);
+            Emissive(signalAmber, new Color(5f, 2.4f, 0.2f));
+            signalGreen = Lit("Signal green", new Color(0.02f, 0.3f, 0.15f), 0f, 0.9f);
+            Emissive(signalGreen, new Color(0.3f, 5f, 2.4f));
+            signalOff = Lit("Signal off", new Color(0.05f, 0.05f, 0.05f), 0f, 0.9f);
+            targetGlow = Lit("Target", new Color(1f, 0.15f, 0.1f), 0f, 0.6f);
+            Emissive(targetGlow, new Color(6f, 0.5f, 0.3f));
+            neon = Lit("Neon", new Color(0.1f, 0.9f, 1f), 0f, 0.8f);
+            Emissive(neon, new Color(0.3f, 3.2f, 4.6f));
+
+            PlayerPaint = Paint(new Color(1f, 0.25f, 0.02f), true, "Crashout orange");
         }
 
+        /// <summary>Clear-coated automotive paint; metallic flake or solid.</summary>
         public Material CreatePaint(Color colour, string name = "Paint")
         {
-            return Lit(name, colour, 0.05f, 0.55f);
+            float tone = colour.r * 0.3f + colour.g * 0.59f + colour.b * 0.11f;
+            // Silvers, blues and greys read best as metallics; whites and blacks as solids.
+            bool metallic = tone > 0.12f && tone < 0.8f;
+            return Paint(colour, metallic, name);
+        }
+
+        private static Material Paint(Color colour, bool metallic, string name)
+        {
+            Material material = new Material(complexShader != null ? complexShader : litShader) { name = name, color = colour };
+            material.SetColor("_BaseColor", colour);
+            material.SetFloat("_Metallic", metallic ? 0.6f : 0.05f);
+            material.SetFloat("_Smoothness", metallic ? 0.68f : 0.58f);
+            if (complexShader != null)
+            {
+                material.SetFloat("_ClearCoat", 1f);
+                material.SetFloat("_ClearCoatMask", 1f);
+                material.SetFloat("_ClearCoatSmoothness", 0.94f);
+                material.EnableKeyword("_CLEARCOAT");
+            }
+            material.enableInstancing = true;
+            return material;
         }
 
         // ------------------------------------------------------------------ atmosphere
@@ -113,13 +226,14 @@ namespace Crashout.Presentation
             Shader skyShader = Shader.Find("Skybox/Procedural");
             if (skyShader != null)
             {
-                skybox = new Material(skyShader) { name = "Golden hour sky" };
-                skybox.SetFloat("_SunSize", 0.06f);
-                skybox.SetFloat("_SunSizeConvergence", 4f);
-                skybox.SetFloat("_AtmosphereThickness", 0.9f);
-                skybox.SetColor("_SkyTint", new Color(0.45f, 0.58f, 0.9f));
-                skybox.SetColor("_GroundColor", new Color(0.55f, 0.48f, 0.42f));
-                skybox.SetFloat("_Exposure", 1.3f);
+                skybox = new Material(skyShader) { name = "Late afternoon sky" };
+                skybox.SetFloat("_SunDisk", 2f);
+                skybox.SetFloat("_SunSize", 0.035f);
+                skybox.SetFloat("_SunSizeConvergence", 6f);
+                skybox.SetFloat("_AtmosphereThickness", 1.05f);
+                skybox.SetColor("_SkyTint", new Color(0.46f, 0.52f, 0.62f));
+                skybox.SetColor("_GroundColor", new Color(0.42f, 0.4f, 0.38f));
+                skybox.SetFloat("_Exposure", 1.2f);
                 RenderSettings.skybox = skybox;
             }
 
@@ -127,57 +241,189 @@ namespace Crashout.Presentation
             sunObject.transform.SetParent(parent, false);
             Light sun = sunObject.AddComponent<Light>();
             sun.type = LightType.Directional;
-            sun.color = new Color(1f, 0.74f, 0.5f);
-            sun.intensity = 2.5f;
+            sun.color = new Color(1f, 0.84f, 0.66f);
+            sun.intensity = 2.9f;
             sun.shadows = LightShadows.Soft;
-            sun.shadowStrength = 0.82f;
-            sun.shadowBias = 0.03f;
-            sun.shadowNormalBias = 0.5f;
-            sunObject.transform.rotation = Quaternion.Euler(24f, -38f, 0f);
+            sun.shadowStrength = 0.85f;
+            sun.shadowBias = 0.02f;
+            sun.shadowNormalBias = 0.35f;
+            // Low, raking light from the south-west lights the runways from the side and throws long shadows.
+            sunObject.transform.rotation = Quaternion.Euler(34f, 62f, 0f);
             RenderSettings.sun = sun;
+            Sun = sun;
 
-            RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.58f, 0.68f, 0.88f);
-            RenderSettings.ambientEquatorColor = new Color(0.72f, 0.6f, 0.54f);
-            RenderSettings.ambientGroundColor = new Color(0.34f, 0.3f, 0.3f);
+            RenderSettings.ambientMode = AmbientMode.Skybox;
+            RenderSettings.ambientIntensity = 1.35f;
             RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
-            RenderSettings.reflectionIntensity = 0.45f;
+            RenderSettings.reflectionIntensity = 1f;
             RenderSettings.fog = !tabletop;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.86f, 0.7f, 0.58f);
-            RenderSettings.fogDensity = 0.0105f;
+            RenderSettings.fogColor = new Color(0.74f, 0.7f, 0.66f);
+            RenderSettings.fogDensity = 0.0052f;
             DynamicGI.UpdateEnvironment();
+
+            if (!tabletop) BuildCloudDome(parent);
             return sun;
         }
 
-        public void InstallPostProcessing(Camera camera, Transform parent)
+        /// <summary>A real-time reflection probe over the play area so paint and glass mirror the scene.</summary>
+        public ReflectionProbe InstallReflections(Transform parent)
+        {
+            GameObject probeObject = new GameObject("Junction reflections");
+            probeObject.transform.SetParent(parent, false);
+            probeObject.transform.position = new Vector3(0f, 3f, -6f);
+            ReflectionProbe probe = probeObject.AddComponent<ReflectionProbe>();
+            probe.mode = ReflectionProbeMode.Realtime;
+            probe.refreshMode = ReflectionProbeRefreshMode.ViaScripting;
+            probe.timeSlicingMode = ReflectionProbeTimeSlicingMode.NoTimeSlicing;
+            probe.resolution = 256;
+            probe.hdr = true;
+            probe.size = new Vector3(400f, 120f, 400f);
+            probe.boxProjection = false;
+            probe.importance = 1;
+            probe.nearClipPlane = 0.3f;
+            probe.farClipPlane = 600f;
+            probe.clearFlags = ReflectionProbeClearFlags.Skybox;
+            Reflections = probe;
+            return probe;
+        }
+
+        public void RefreshReflections()
+        {
+            if (Reflections != null) Reflections.RenderProbe();
+        }
+
+        /// <summary>Switches from the AR table to the full virtual world's sky: fog and clouds.</summary>
+        public void EnableVirtualSky(Transform parent)
+        {
+            RenderSettings.fog = true;
+            if (cloudDome == null) BuildCloudDome(parent);
+        }
+
+        private GameObject cloudDome;
+
+        private void BuildCloudDome(Transform parent)
+        {
+            const int width = 1024, height = 256;
+            var pixels = new Color32[width * height];
+            System.Threading.Tasks.Parallel.For(0, height, y =>
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    float u = x / (float)width, v = y / (float)height;
+                    float density = ProceduralTextures.Fbm(u, v * 0.5f, 6, 6, 41, 0.55f);
+                    float wisp = ProceduralTextures.Fbm(u * 2f, v, 12, 4, 47, 0.5f);
+                    float coverage = ProceduralTextures.SmoothStep(0.48f, 0.72f, density * 0.8f + wisp * 0.3f);
+                    // Thin toward the zenith and the horizon so the sky stays readable.
+                    coverage *= ProceduralTextures.SmoothStep(0f, 0.25f, v) * ProceduralTextures.SmoothStep(1f, 0.6f, v);
+                    float shade = Mathf.Lerp(0.72f, 1f, Mathf.Clamp01(density * 1.6f - 0.3f));
+                    Color c = new Color(1f * shade, 0.93f * shade, 0.86f * shade, coverage * 0.85f);
+                    pixels[y * width + x] = c;
+                }
+            });
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, true, false) { name = "Clouds", wrapMode = TextureWrapMode.Repeat };
+            texture.wrapModeV = TextureWrapMode.Clamp;
+            texture.SetPixels32(pixels);
+            texture.Apply(true, true);
+
+            var kit = new MeshKit();
+            const int segments = 48, rings = 12;
+            const float radius = 520f, dome = 150f;
+            int start = kit.VertexCount;
+            for (int r = 0; r <= rings; r++)
+            {
+                float t = r / (float)rings;
+                float elevation = Mathf.Lerp(0.02f, Mathf.PI * 0.5f, t);
+                for (int s = 0; s <= segments; s++)
+                {
+                    float a = s / (float)segments * Mathf.PI * 2f;
+                    Vector3 p = new Vector3(Mathf.Cos(a) * Mathf.Cos(elevation) * radius, Mathf.Sin(elevation) * dome - 20f, Mathf.Sin(a) * Mathf.Cos(elevation) * radius);
+                    kit.Vertex(p, -p.normalized, new Vector2(s / (float)segments * 3f, t));
+                }
+            }
+            kit.Grid(start, rings + 1, segments + 1);
+            Material cloudMaterial = new Material(Shader.Find("Sprites/Default")) { name = "Cloud layer", mainTexture = texture };
+            cloudMaterial.renderQueue = 2900;
+            GameObject domeObject = MeshKit.Spawn(parent, "Cloud dome", kit.ToMesh("Cloud dome"), cloudMaterial, false);
+            domeObject.GetComponent<MeshRenderer>().receiveShadows = false;
+            cloudDome = domeObject;
+        }
+
+        // ------------------------------------------------------------------ post-processing
+
+        /// <summary>Installs the filmic look and returns the profile so <see cref="CinematicFx"/> can animate it.</summary>
+        public VolumeProfile InstallPostProcessing(Camera camera, Transform parent, bool tabletop = false)
         {
             UniversalAdditionalCameraData data = camera.GetUniversalAdditionalCameraData();
             data.renderPostProcessing = true;
+            // MSAA (pipeline asset) handles geometry edges; no extra post AA pass.
             data.antialiasing = AntialiasingMode.None;
+            data.requiresDepthTexture = true;
             camera.allowHDR = true;
 
             VolumeProfile profile = ScriptableObject.CreateInstance<VolumeProfile>();
             profile.name = "Crashout look";
 
             Bloom bloom = profile.Add<Bloom>(true);
-            bloom.threshold.Override(1.05f);
-            bloom.intensity.Override(0.75f);
-            bloom.scatter.Override(0.68f);
-            bloom.tint.Override(new Color(1f, 0.92f, 0.85f));
+            bloom.threshold.Override(1.1f);
+            bloom.intensity.Override(0.55f);
+            bloom.scatter.Override(0.72f);
+            bloom.tint.Override(new Color(1f, 0.93f, 0.86f));
+            bloom.highQualityFiltering.Override(!tabletop);
+            if (!tabletop)
+            {
+                bloom.dirtTexture.Override(ProceduralTextures.LensDirt());
+                bloom.dirtIntensity.Override(2.2f);
+            }
 
             Tonemapping tonemapping = profile.Add<Tonemapping>(true);
             tonemapping.mode.Override(TonemappingMode.ACES);
 
             ColorAdjustments adjustments = profile.Add<ColorAdjustments>(true);
-            adjustments.postExposure.Override(0.15f);
-            adjustments.contrast.Override(12f);
-            adjustments.saturation.Override(16f);
+            adjustments.postExposure.Override(0.35f);
+            adjustments.contrast.Override(14f);
+            adjustments.saturation.Override(6f);
+
+            WhiteBalance whiteBalance = profile.Add<WhiteBalance>(true);
+            whiteBalance.temperature.Override(6f);
+            whiteBalance.tint.Override(2f);
+
+            // Blockbuster split: cool shadows, warm highlights.
+            ShadowsMidtonesHighlights smh = profile.Add<ShadowsMidtonesHighlights>(true);
+            smh.shadows.Override(new Vector4(0.93f, 0.98f, 1.06f, -0.02f));
+            smh.midtones.Override(new Vector4(1f, 0.99f, 0.97f, 0f));
+            smh.highlights.Override(new Vector4(1.05f, 1f, 0.94f, 0.02f));
 
             Vignette vignette = profile.Add<Vignette>(true);
-            vignette.intensity.Override(0.26f);
-            vignette.smoothness.Override(0.45f);
-            vignette.color.Override(new Color(0.12f, 0.05f, 0.08f));
+            vignette.intensity.Override(tabletop ? 0.12f : 0.3f);
+            vignette.smoothness.Override(0.42f);
+            vignette.color.Override(new Color(0.06f, 0.03f, 0.03f));
+
+            ChromaticAberration chromatic = profile.Add<ChromaticAberration>(true);
+            chromatic.intensity.Override(tabletop ? 0f : 0.06f);
+
+            if (!tabletop)
+            {
+                FilmGrain grain = profile.Add<FilmGrain>(true);
+                grain.type.Override(FilmGrainLookup.Thin1);
+                grain.intensity.Override(0.16f);
+                grain.response.Override(0.85f);
+
+                MotionBlur motionBlur = profile.Add<MotionBlur>(true);
+                motionBlur.quality.Override(MotionBlurQuality.High);
+                motionBlur.intensity.Override(0.25f);
+                motionBlur.clamp.Override(0.06f);
+
+                LensDistortion lens = profile.Add<LensDistortion>(true);
+                lens.intensity.Override(0f);
+                lens.scale.Override(1f);
+
+                DepthOfField depthOfField = profile.Add<DepthOfField>(true);
+                depthOfField.mode.Override(DepthOfFieldMode.Off);
+                depthOfField.focusDistance.Override(12f);
+                depthOfField.aperture.Override(4f);
+                depthOfField.focalLength.Override(55f);
+            }
 
             GameObject volumeObject = new GameObject("Crashout look volume");
             volumeObject.transform.SetParent(parent, false);
@@ -185,317 +431,88 @@ namespace Crashout.Presentation
             volume.isGlobal = true;
             volume.priority = 10f;
             volume.sharedProfile = profile;
+            return profile;
         }
 
-        // ------------------------------------------------------------------ city
+        // ------------------------------------------------------------------ material helpers
 
-        public Transform BuildCity(Transform parent, bool tabletop = false)
+        internal static Material Lit(string name, Color colour, float metallic, float smoothness)
         {
-            float reach = tabletop ? 26f : 150f;
-            Transform root = new GameObject("City").transform;
-            root.SetParent(parent, false);
+            Material material = new Material(litShader) { name = name, color = colour };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
+            material.SetFloat("_Metallic", metallic);
+            material.SetFloat("_Smoothness", smoothness);
+            if (material.HasProperty("_Glossiness")) material.SetFloat("_Glossiness", smoothness);
+            material.enableInstancing = true;
+            return material;
+        }
 
-            float groundSize = tabletop ? 52f : 700f;
-            Slab(root, "Ground", new Vector3(0f, -0.2f, 0f), new Vector3(groundSize, 0.3f, groundSize), tabletop ? 0.08f : 0.01f, ground, true);
-            Slab(root, "North / South road", new Vector3(0f, 0f, 0f), new Vector3(10f, 0.08f, reach * 2f), 0.02f, asphalt, true);
-            Slab(root, "East / West road", new Vector3(0f, 0.01f, 0f), new Vector3(reach * 2f, 0.08f, 10f), 0.02f, asphalt, true);
-
-            float sidewalkSize = reach - 5f - (tabletop ? 0f : 35f);
-            for (int sx = -1; sx <= 1; sx += 2)
+        /// <summary>Textured PBR surface. UVs are in metres, so tiling is one texture per <paramref name="tileMetres"/>.</summary>
+        internal static Material Surface(string name, ProceduralTextures.SurfaceSet set, float tileMetres, Color tint, float smoothness = 1f, float normalScale = 1f)
+        {
+            Material material = Lit(name, tint, 0f, smoothness);
+            material.SetTexture("_BaseMap", set.Albedo);
+            material.SetTextureScale("_BaseMap", new Vector2(1f / tileMetres, 1f / tileMetres));
+            if (set.Normal != null) Normal(material, set.Normal, normalScale);
+            if (set.Mask != null)
             {
-                for (int sz = -1; sz <= 1; sz += 2)
+                material.SetTexture("_MetallicGlossMap", set.Mask);
+                material.EnableKeyword("_METALLICSPECGLOSSMAP");
+            }
+            return material;
+        }
+
+        internal static void Normal(Material material, Texture2D normal, float scale)
+        {
+            material.SetTexture("_BumpMap", normal);
+            material.SetFloat("_BumpScale", scale);
+            material.EnableKeyword("_NORMALMAP");
+        }
+
+        internal static void Emissive(Material material, Color colour, Texture emissionMap = null)
+        {
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", colour);
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            if (emissionMap != null) material.SetTexture("_EmissionMap", emissionMap);
+        }
+
+        internal void Detail(Material material, float tileMetres, float worldSize)
+        {
+            material.SetTexture("_DetailAlbedoMap", groundDetail.Albedo);
+            material.SetTexture("_DetailNormalMap", groundDetail.Normal);
+            material.SetFloat("_DetailAlbedoMapScale", 1f);
+            material.SetFloat("_DetailNormalMapScale", 0.8f);
+            material.SetTextureScale("_DetailAlbedoMap", new Vector2(worldSize / tileMetres, worldSize / tileMetres));
+            material.EnableKeyword("_DETAIL_MULX2");
+        }
+
+        private static Texture2D HazardTexture()
+        {
+            const int size = 128;
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
                 {
-                    Slab(root, "Sidewalk", new Vector3(sx * (5f + sidewalkSize * 0.5f), 0f, sz * (5f + sidewalkSize * 0.5f)),
-                        new Vector3(sidewalkSize, 0.2f, sidewalkSize), 0.05f, sidewalk, true);
+                    bool stripe = ((x + y) / 32) % 2 == 0;
+                    float grime = 0.85f + ProceduralTextures.Hash(x, y, 3) * 0.15f;
+                    Color c = stripe ? new Color(0.95f, 0.72f, 0.05f) : new Color(0.04f, 0.04f, 0.04f);
+                    pixels[y * size + x] = c * grime;
                 }
             }
-
-            BuildRoadMarkings(root, reach);
-            BuildCornerBlocks(root);
-            if (!tabletop) BuildSkyline(root);
-            BuildStreetFurniture(root, tabletop);
-
-            Slab(root, "Impact target", new Vector3(7f, 0.6f, -5.7f), new Vector3(3.8f, 1.2f, 0.35f), 0.06f, PlayerPaint, true);
-            return root;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, true, false) { name = "Hazard", wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
+            texture.SetPixels32(pixels);
+            texture.Apply(true, true);
+            return texture;
         }
 
-        private void BuildRoadMarkings(Transform root, float reach)
+        private static float Hash(int x, int y)
         {
-            for (float d = -reach; d <= reach; d += 3.6f)
-            {
-                if (Mathf.Abs(d) < 10.8f) continue;
-                Decal(root, "Lane mark", new Vector3(0f, 0.052f, d), new Vector3(0.14f, 0.012f, 1.8f), lanePaint);
-                Decal(root, "Lane mark", new Vector3(d, 0.062f, 0f), new Vector3(1.8f, 0.012f, 0.14f), lanePaint);
-            }
-
-            for (int side = -1; side <= 1; side += 2)
-            {
-                for (int arm = -1; arm <= 1; arm += 2)
-                {
-                    float length = reach - 12f;
-                    float centre = 11f + length * 0.5f;
-                    Decal(root, "Edge line", new Vector3(side * 4.55f, 0.052f, arm * centre), new Vector3(0.14f, 0.012f, length), whitePaint);
-                    Decal(root, "Edge line", new Vector3(arm * centre, 0.062f, side * 4.55f), new Vector3(length, 0.012f, 0.14f), whitePaint);
-                }
-            }
-
-            for (int arm = -1; arm <= 1; arm += 2)
-            {
-                for (float offset = -4f; offset <= 4.01f; offset += 1f)
-                {
-                    Decal(root, "Crosswalk", new Vector3(offset, 0.052f, arm * 7.6f), new Vector3(0.5f, 0.012f, 2.4f), whitePaint);
-                    Decal(root, "Crosswalk", new Vector3(arm * 7.6f, 0.062f, offset), new Vector3(2.4f, 0.012f, 0.5f), whitePaint);
-                }
-                Decal(root, "Stop line", new Vector3(-arm * 2.5f, 0.052f, arm * 9.6f), new Vector3(4.6f, 0.012f, 0.3f), whitePaint);
-                Decal(root, "Stop line", new Vector3(arm * 9.6f, 0.062f, arm * 2.5f), new Vector3(0.3f, 0.012f, 4.6f), whitePaint);
-            }
+            return ProceduralTextures.Hash(x, y, 0);
         }
 
-        private void BuildCornerBlocks(Transform root)
-        {
-            float[] heights = { 8f, 10.5f, 7f, 9.5f };
-            int index = 0;
-            for (int sz = -1; sz <= 1; sz += 2)
-            {
-                for (int sx = -1; sx <= 1; sx += 2)
-                {
-                    float h = heights[index];
-                    Material facade = facades[(index * 3 + 1) % facades.Length];
-                    Vector3 centre = new Vector3(sx * 8.8f, h * 0.5f, sz * 8.8f);
-                    Slab(root, "Corner block " + (index + 1), centre, new Vector3(7f, h, 7f), 0.12f, facade, true);
-                    Slab(root, "Roof", new Vector3(centre.x, h + 0.15f, centre.z), new Vector3(7.4f, 0.3f, 7.4f), 0.06f, roofMaterial, false);
-                    Slab(root, "Rooftop unit", new Vector3(centre.x - sx * 1.2f, h + 0.7f, centre.z + sz * 1f), new Vector3(1.8f, 0.9f, 1.4f), 0.1f, trim, false);
-                    Slab(root, "Rooftop unit", new Vector3(centre.x + sx * 1.6f, h + 0.55f, centre.z - sz * 1.4f), new Vector3(1.2f, 0.6f, 1.2f), 0.08f, whitePaint, false);
-
-                    Color awningColour = TrafficPalette[(index * 2 + 1) % TrafficPalette.Length];
-                    Material awning = Lit("Awning " + index, awningColour, 0f, 0.35f);
-
-                    // Shop front on the face toward the north/south road.
-                    Slab(root, "Shop glass", new Vector3(sx * 5.27f, 1.35f, sz * 8.8f), new Vector3(0.06f, 2.2f, 5.4f), 0.02f, shopGlow, false);
-                    Slab(root, "Awning", new Vector3(sx * 4.55f, 3.1f, sz * 8.8f), new Vector3(1.6f, 0.1f, 5.8f), 0.04f, awning, false, new Vector3(0f, 0f, 13f * sx));
-                    // Shop front on the face toward the east/west road.
-                    Slab(root, "Shop glass", new Vector3(sx * 8.8f, 1.35f, sz * 5.27f), new Vector3(5.4f, 2.2f, 0.06f), 0.02f, shopGlow, false);
-                    Slab(root, "Awning", new Vector3(sx * 8.8f, 3.1f, sz * 4.55f), new Vector3(5.8f, 0.1f, 1.6f), 0.04f, awning, false, new Vector3(-13f * sz, 0f, 0f));
-                    index++;
-                }
-            }
-        }
-
-        private void BuildSkyline(Transform root)
-        {
-            float[] centres = { 11.5f, 22f, 34f, 48f, 66f };
-            for (int ix = 0; ix < centres.Length; ix++)
-            {
-                for (int iz = 0; iz < centres.Length; iz++)
-                {
-                    if (ix == 0 && iz == 0) continue;
-                    for (int sx = -1; sx <= 1; sx += 2)
-                    {
-                        for (int sz = -1; sz <= 1; sz += 2)
-                        {
-                            int seed = ix * 31 + iz * 17 + (sx > 0 ? 5 : 0) + (sz > 0 ? 11 : 0);
-                            float randomA = Hash(seed, 3);
-                            float randomB = Hash(seed, 9);
-                            float distance = Mathf.Max(centres[ix], centres[iz]);
-                            float height = Mathf.Lerp(8f, 20f, randomA) + distance * Mathf.Lerp(0.1f, 0.45f, randomB);
-                            float width = Mathf.Lerp(7.6f, 8.6f, randomB);
-                            float depth = Mathf.Lerp(7.6f, 8.6f, randomA);
-                            Vector3 centre = new Vector3(sx * centres[ix], height * 0.5f, sz * centres[iz]);
-                            Material facade = facades[seed % facades.Length];
-                            Slab(root, "Skyline building", centre, new Vector3(width, height, depth), 0.12f, facade, false);
-                            Slab(root, "Skyline roof", new Vector3(centre.x, height + 0.15f, centre.z), new Vector3(width + 0.4f, 0.3f, depth + 0.4f), 0.06f, roofMaterial, false);
-                        }
-                    }
-                }
-            }
-        }
-
-        private void BuildStreetFurniture(Transform root, bool tabletop)
-        {
-            float[] along = tabletop ? new[] { 16f, 23f } : new[] { 16f, 28f, 40f, 54f };
-            for (int arm = 0; arm < 4; arm++)
-            {
-                Vector3 forward = arm == 0 ? Vector3.forward : arm == 1 ? Vector3.back : arm == 2 ? Vector3.right : Vector3.left;
-                Vector3 side = Vector3.Cross(Vector3.up, forward);
-                for (int s = -1; s <= 1; s += 2)
-                {
-                    for (int i = 0; i < along.Length; i++)
-                    {
-                        Vector3 position = forward * along[i] + side * (s * 5.8f);
-                        if (i % 2 == 0) Lamp(root, position, -side * s);
-                        else Tree(root, position, Hash(arm * 7 + i, s + 3));
-                    }
-                }
-            }
-        }
-
-        private void Lamp(Transform root, Vector3 position, Vector3 towardRoad)
-        {
-            GameObject pole = Primitive(root, PrimitiveType.Cylinder, "Lamp pole", position + Vector3.up * 2.7f, new Vector3(0.14f, 2.6f, 0.14f), trim, false);
-            CapsuleCollider collider = pole.AddComponent<CapsuleCollider>();
-            collider.radius = 0.5f;
-            collider.height = 2f;
-            Quaternion facing = Quaternion.LookRotation(towardRoad, Vector3.up);
-            Slab(root, "Lamp arm", position + Vector3.up * 5.25f + towardRoad * 0.65f, new Vector3(0.1f, 0.1f, 1.4f), 0.03f, trim, false, facing.eulerAngles);
-            Slab(root, "Lamp head", position + Vector3.up * 5.18f + towardRoad * 1.25f, new Vector3(0.4f, 0.1f, 0.7f), 0.04f, lampGlow, false, facing.eulerAngles, false);
-        }
-
-        private void Tree(Transform root, Vector3 position, float random)
-        {
-            float scale = Mathf.Lerp(0.85f, 1.25f, random);
-            GameObject stem = Primitive(root, PrimitiveType.Cylinder, "Trunk", position + Vector3.up * (0.95f * scale), new Vector3(0.28f, 0.85f * scale, 0.28f), trunk, true);
-            CapsuleCollider collider = stem.AddComponent<CapsuleCollider>();
-            collider.radius = 0.5f;
-            collider.height = 2f;
-            Material foliage = leaves[Mathf.Min(leaves.Length - 1, Mathf.FloorToInt(random * leaves.Length))];
-            Primitive(root, PrimitiveType.Sphere, "Canopy", position + Vector3.up * (2.5f * scale), Vector3.one * 2.5f * scale, foliage, true);
-            Primitive(root, PrimitiveType.Sphere, "Canopy", position + new Vector3(0.45f, 3.2f * scale, 0.2f), Vector3.one * 1.7f * scale, leaves[1], true);
-        }
-
-        // ------------------------------------------------------------------ cars
-
-        public GameObject CreateCar(string name, Material paint, VehicleClass vehicleClass, bool player, out Transform[] frontPivots, out Transform[] rollPivots)
-        {
-            VehicleSpec spec = VehicleSpec.For(vehicleClass);
-            GameObject root = new GameObject(name);
-            Transform t = root.transform;
-            if (vehicleClass == VehicleClass.Bus) BuildBus(t, paint);
-            else if (vehicleClass == VehicleClass.Tanker) BuildTanker(t, paint);
-            else BuildCar(t, paint, vehicleClass, player);
-
-            Vector3[] wheelPositions = spec.WheelPositions;
-            float wheelDiameter = spec.WheelRadius * 2f;
-            float wheelScale = spec.WheelRadius / 0.31f;
-            frontPivots = new Transform[2];
-            rollPivots = new Transform[wheelPositions.Length];
-            for (int i = 0; i < wheelPositions.Length; i++)
-            {
-                GameObject steerPivot = new GameObject("Wheel steer " + i);
-                steerPivot.transform.SetParent(t, false);
-                steerPivot.transform.localPosition = wheelPositions[i];
-                GameObject rollPivot = new GameObject("Wheel roll " + i);
-                rollPivot.transform.SetParent(steerPivot.transform, false);
-
-                bool left = wheelPositions[i].x < 0f;
-                GameObject tyre = Primitive(rollPivot.transform, PrimitiveType.Cylinder, "Tyre", Vector3.zero, new Vector3(wheelDiameter, 0.13f * wheelScale, wheelDiameter), rubber, false);
-                tyre.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-                GameObject wheelFace = Primitive(rollPivot.transform, PrimitiveType.Cylinder, "Rim", new Vector3((left ? -0.03f : 0.03f) * wheelScale, 0f, 0f), new Vector3(wheelDiameter * 0.61f, 0.135f * wheelScale, wheelDiameter * 0.61f), rim, false);
-                wheelFace.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-                // A spoke bar keeps wheel rotation readable.
-                Primitive(rollPivot.transform, PrimitiveType.Cube, "Spoke", new Vector3((left ? -0.075f : 0.075f) * wheelScale, 0f, 0f), new Vector3(0.02f, wheelDiameter * 0.65f, 0.07f * wheelScale), trim, false);
-                if (i < 2) frontPivots[i] = steerPivot.transform;
-                rollPivots[i] = rollPivot.transform;
-            }
-            return root;
-        }
-
-        private void BuildCar(Transform t, Material paint, VehicleClass vehicleClass, bool player)
-        {
-            Part(t, "Body", new Vector3(0f, -0.02f, 0f), new Vector3(1.58f, 0.4f, 3.1f), 0.15f, paint, true);
-            Part(t, "Underbody", new Vector3(0f, -0.25f, 0f), new Vector3(1.4f, 0.1f, 2.8f), 0.04f, underbody, false);
-            Part(t, "Front bumper", new Vector3(0f, -0.16f, 1.53f), new Vector3(1.5f, 0.14f, 0.12f), 0.05f, trim, false);
-            Part(t, "Rear bumper", new Vector3(0f, -0.16f, -1.53f), new Vector3(1.5f, 0.14f, 0.12f), 0.05f, trim, false);
-            Part(t, "Grille", new Vector3(0f, -0.04f, 1.56f), new Vector3(0.7f, 0.1f, 0.04f), 0.02f, trim, false);
-            Part(t, "Headlight L", new Vector3(-0.52f, 0.05f, 1.55f), new Vector3(0.32f, 0.12f, 0.05f), 0.03f, headlight, false);
-            Part(t, "Headlight R", new Vector3(0.52f, 0.05f, 1.55f), new Vector3(0.32f, 0.12f, 0.05f), 0.03f, headlight, false);
-            Part(t, "Taillight L", new Vector3(-0.52f, 0.06f, -1.55f), new Vector3(0.38f, 0.1f, 0.05f), 0.03f, taillight, false);
-            Part(t, "Taillight R", new Vector3(0.52f, 0.06f, -1.55f), new Vector3(0.38f, 0.1f, 0.05f), 0.03f, taillight, false);
-
-            switch (vehicleClass)
-            {
-                case VehicleClass.Van:
-                    Part(t, "Cabin", new Vector3(0f, 0.4f, -0.3f), new Vector3(1.5f, 0.66f, 2.3f), 0.2f, paint, true);
-                    Part(t, "Windscreen", new Vector3(0f, 0.5f, 0.86f), new Vector3(1.26f, 0.3f, 0.05f), 0.03f, glass, false);
-                    Part(t, "Side glass L", new Vector3(-0.755f, 0.5f, 0.1f), new Vector3(0.05f, 0.28f, 1.1f), 0.03f, glass, false);
-                    Part(t, "Side glass R", new Vector3(0.755f, 0.5f, 0.1f), new Vector3(0.05f, 0.28f, 1.1f), 0.03f, glass, false);
-                    break;
-                case VehicleClass.Pickup:
-                    Part(t, "Cab", new Vector3(0f, 0.34f, 0.42f), new Vector3(1.46f, 0.46f, 1.2f), 0.16f, paint, true);
-                    Part(t, "Cab glass", new Vector3(0f, 0.38f, 0.42f), new Vector3(1.5f, 0.28f, 0.95f), 0.1f, glass, false);
-                    Part(t, "Roof", new Vector3(0f, 0.58f, 0.42f), new Vector3(1.4f, 0.07f, 1.0f), 0.03f, paint, true);
-                    Part(t, "Bed floor", new Vector3(0f, 0.2f, -0.85f), new Vector3(1.4f, 0.05f, 1.5f), 0.02f, trim, false);
-                    Part(t, "Bed wall L", new Vector3(-0.74f, 0.3f, -0.85f), new Vector3(0.1f, 0.25f, 1.6f), 0.03f, paint, true);
-                    Part(t, "Bed wall R", new Vector3(0.74f, 0.3f, -0.85f), new Vector3(0.1f, 0.25f, 1.6f), 0.03f, paint, true);
-                    Part(t, "Tailgate", new Vector3(0f, 0.3f, -1.5f), new Vector3(1.5f, 0.25f, 0.08f), 0.03f, paint, true);
-                    break;
-                case VehicleClass.Hatch:
-                    Part(t, "Cabin", new Vector3(0f, 0.35f, -0.28f), new Vector3(1.4f, 0.46f, 1.9f), 0.2f, glass, true);
-                    Part(t, "Roof", new Vector3(0f, 0.585f, -0.28f), new Vector3(1.34f, 0.08f, 1.6f), 0.04f, paint, true);
-                    break;
-                default:
-                    Part(t, "Cabin", new Vector3(0f, 0.34f, -0.22f), new Vector3(1.34f, 0.42f, 1.6f), 0.17f, glass, true);
-                    Part(t, "Roof", new Vector3(0f, 0.55f, -0.22f), new Vector3(1.3f, 0.08f, 1.34f), 0.035f, paint, true);
-                    break;
-            }
-
-            Part(t, "Mirror L", new Vector3(-0.82f, 0.3f, 0.5f), new Vector3(0.12f, 0.1f, 0.16f), 0.03f, trim, false);
-            Part(t, "Mirror R", new Vector3(0.82f, 0.3f, 0.5f), new Vector3(0.12f, 0.1f, 0.16f), 0.03f, trim, false);
-
-            if (player)
-            {
-                Material stripe = whitePaint;
-                Part(t, "Hood stripe", new Vector3(0f, 0.189f, 0.82f), new Vector3(0.34f, 0.012f, 1.34f), 0.005f, stripe, false);
-                Part(t, "Roof stripe", new Vector3(0f, 0.596f, -0.22f), new Vector3(0.34f, 0.012f, 1.3f), 0.005f, stripe, false);
-                Part(t, "Trunk stripe", new Vector3(0f, 0.189f, -1.18f), new Vector3(0.34f, 0.012f, 0.6f), 0.005f, stripe, false);
-                Part(t, "Spoiler wing", new Vector3(0f, 0.44f, -1.42f), new Vector3(1.56f, 0.05f, 0.4f), 0.02f, trim, true);
-                Part(t, "Spoiler post L", new Vector3(-0.5f, 0.3f, -1.4f), new Vector3(0.07f, 0.26f, 0.1f), 0.02f, trim, false);
-                Part(t, "Spoiler post R", new Vector3(0.5f, 0.3f, -1.4f), new Vector3(0.07f, 0.26f, 0.1f), 0.02f, trim, false);
-                Part(t, "Neon L", new Vector3(-0.8f, -0.21f, 0f), new Vector3(0.04f, 0.04f, 2.3f), 0.015f, neon, false);
-                Part(t, "Neon R", new Vector3(0.8f, -0.21f, 0f), new Vector3(0.04f, 0.04f, 2.3f), 0.015f, neon, false);
-            }
-        }
-
-        private void BuildBus(Transform t, Material paint)
-        {
-            Part(t, "Body", new Vector3(0f, 0.05f, 0f), new Vector3(2.3f, 2.0f, 7.4f), 0.22f, paint, true);
-            Part(t, "Roof cap", new Vector3(0f, 1.1f, 0f), new Vector3(2.2f, 0.12f, 7.2f), 0.05f, whitePaint, true);
-            Part(t, "Underbody", new Vector3(0f, -0.95f, 0f), new Vector3(2.0f, 0.2f, 7.0f), 0.05f, underbody, false);
-            Part(t, "Window band L", new Vector3(-1.16f, 0.5f, -0.2f), new Vector3(0.06f, 0.7f, 5.6f), 0.03f, glass, false);
-            Part(t, "Window band R", new Vector3(1.16f, 0.5f, -0.2f), new Vector3(0.06f, 0.7f, 5.6f), 0.03f, glass, false);
-            Part(t, "Windscreen", new Vector3(0f, 0.45f, 3.71f), new Vector3(1.9f, 0.9f, 0.06f), 0.04f, glass, false);
-            Part(t, "Rear window", new Vector3(0f, 0.55f, -3.71f), new Vector3(1.7f, 0.6f, 0.06f), 0.04f, glass, false);
-            Part(t, "Route sign", new Vector3(0f, 0.95f, 3.72f), new Vector3(1.2f, 0.18f, 0.05f), 0.02f, shopGlow, false);
-            Part(t, "Stripe L", new Vector3(-1.16f, -0.35f, 0f), new Vector3(0.05f, 0.14f, 7.2f), 0.02f, whitePaint, false);
-            Part(t, "Stripe R", new Vector3(1.16f, -0.35f, 0f), new Vector3(0.05f, 0.14f, 7.2f), 0.02f, whitePaint, false);
-            Part(t, "Headlight L", new Vector3(-0.8f, -0.55f, 3.72f), new Vector3(0.4f, 0.16f, 0.06f), 0.03f, headlight, false);
-            Part(t, "Headlight R", new Vector3(0.8f, -0.55f, 3.72f), new Vector3(0.4f, 0.16f, 0.06f), 0.03f, headlight, false);
-            Part(t, "Taillight L", new Vector3(-0.8f, -0.45f, -3.72f), new Vector3(0.4f, 0.2f, 0.06f), 0.03f, taillight, false);
-            Part(t, "Taillight R", new Vector3(0.8f, -0.45f, -3.72f), new Vector3(0.4f, 0.2f, 0.06f), 0.03f, taillight, false);
-            Part(t, "Bumper F", new Vector3(0f, -0.85f, 3.7f), new Vector3(2.2f, 0.25f, 0.2f), 0.06f, trim, false);
-            Part(t, "Bumper R", new Vector3(0f, -0.85f, -3.7f), new Vector3(2.2f, 0.25f, 0.2f), 0.06f, trim, false);
-        }
-
-        private void BuildTanker(Transform t, Material paint)
-        {
-            Part(t, "Chassis", new Vector3(0f, -0.75f, 0f), new Vector3(2.0f, 0.3f, 7.8f), 0.05f, underbody, false);
-            Part(t, "Cab", new Vector3(0f, 0.1f, 3.0f), new Vector3(2.2f, 1.9f, 1.8f), 0.2f, paint, true);
-            Part(t, "Cab glass", new Vector3(0f, 0.55f, 3.92f), new Vector3(1.8f, 0.7f, 0.06f), 0.04f, glass, false);
-            Part(t, "Cab glass L", new Vector3(-1.12f, 0.55f, 3.3f), new Vector3(0.06f, 0.7f, 1.0f), 0.04f, glass, false);
-            Part(t, "Cab glass R", new Vector3(1.12f, 0.55f, 3.3f), new Vector3(0.06f, 0.7f, 1.0f), 0.04f, glass, false);
-            Part(t, "Headlight L", new Vector3(-0.7f, -0.55f, 3.92f), new Vector3(0.4f, 0.16f, 0.06f), 0.03f, headlight, false);
-            Part(t, "Headlight R", new Vector3(0.7f, -0.55f, 3.92f), new Vector3(0.4f, 0.16f, 0.06f), 0.03f, headlight, false);
-            Part(t, "Taillight L", new Vector3(-0.7f, -0.55f, -3.92f), new Vector3(0.4f, 0.16f, 0.06f), 0.03f, taillight, false);
-            Part(t, "Taillight R", new Vector3(0.7f, -0.55f, -3.92f), new Vector3(0.4f, 0.16f, 0.06f), 0.03f, taillight, false);
-            GameObject tank = Primitive(t, PrimitiveType.Cylinder, "Tank", new Vector3(0f, 0.3f, -0.85f), new Vector3(2.15f, 2.75f, 2.15f), whitePaint, true);
-            tank.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            GameObject band = Primitive(t, PrimitiveType.Cylinder, "Hazard band", new Vector3(0f, 0.3f, -0.85f), new Vector3(2.19f, 0.4f, 2.19f), paint, false);
-            band.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            Part(t, "Hatch", new Vector3(0f, 1.42f, -0.85f), new Vector3(0.6f, 0.12f, 0.6f), 0.04f, trim, false);
-            Part(t, "Bumper F", new Vector3(0f, -0.85f, 3.9f), new Vector3(2.1f, 0.25f, 0.2f), 0.06f, trim, false);
-        }
-
-        public GameObject CreateTargetMarker(Transform vehicle, float height, Crashout.Simulation.CrashoutGameSession session, uint entityId)
-        {
-            GameObject marker = new GameObject("Target marker");
-            marker.transform.SetParent(vehicle, false);
-            GameObject diamond = Part(marker.transform, "Diamond", Vector3.zero, new Vector3(0.75f, 0.75f, 0.75f), 0.1f, targetGlow, false);
-            diamond.transform.localRotation = Quaternion.Euler(35f, 45f, 0f);
-            Part(marker.transform, "Pointer", new Vector3(0f, -0.62f, 0f), new Vector3(0.12f, 0.5f, 0.12f), 0.04f, targetGlow, false);
-            marker.AddComponent<TargetMarker>().Configure(session, entityId, vehicle, height);
-            return marker;
-        }
-
-        // ------------------------------------------------------------------ building blocks
+        // ------------------------------------------------------------------ primitive helpers
 
         private GameObject Part(Transform parent, string name, Vector3 localPosition, Vector3 size, float radius, Material material, bool castShadow)
         {
@@ -527,127 +544,6 @@ namespace Crashout.Presentation
         private GameObject Decal(Transform parent, string name, Vector3 position, Vector3 size, Material material)
         {
             return Slab(parent, name, position, size, 0.004f, material, false, null, false);
-        }
-
-        private GameObject Primitive(Transform parent, PrimitiveType type, string name, Vector3 position, Vector3 scale, Material material, bool castShadow)
-        {
-            GameObject primitive = GameObject.CreatePrimitive(type);
-            primitive.name = name;
-            primitive.transform.SetParent(parent, false);
-            primitive.transform.localPosition = position;
-            primitive.transform.localScale = scale;
-            Object.Destroy(primitive.GetComponent<Collider>());
-            MeshRenderer renderer = primitive.GetComponent<MeshRenderer>();
-            renderer.sharedMaterial = material;
-            renderer.shadowCastingMode = castShadow ? ShadowCastingMode.On : ShadowCastingMode.Off;
-            return primitive;
-        }
-
-        // ------------------------------------------------------------------ materials & textures
-
-        private static Material Lit(string name, Color colour, float metallic, float smoothness, Texture map = null, float tiling = 1f,
-            Color? emission = null, Texture emissionMap = null)
-        {
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            Material material = new Material(shader) { name = name, color = colour };
-            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
-            if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", metallic);
-            if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
-            if (material.HasProperty("_Glossiness")) material.SetFloat("_Glossiness", smoothness);
-            if (map != null && material.HasProperty("_BaseMap"))
-            {
-                material.SetTexture("_BaseMap", map);
-                material.SetTextureScale("_BaseMap", new Vector2(tiling, tiling));
-            }
-            if (emission.HasValue)
-            {
-                material.EnableKeyword("_EMISSION");
-                material.SetColor("_EmissionColor", emission.Value);
-                material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-                if (emissionMap != null) material.SetTexture("_EmissionMap", emissionMap);
-            }
-            return material;
-        }
-
-        private static Texture2D MakeGrit()
-        {
-            const int size = 64;
-            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, true, false) { name = "Grit", wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
-            System.Random random = new System.Random(7);
-            Color[] pixels = new Color[size * size];
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                float v = 0.9f + (float)random.NextDouble() * 0.1f;
-                if (random.NextDouble() < 0.03) v *= 0.82f;
-                pixels[i] = new Color(v, v, v, 1f);
-            }
-            texture.SetPixels(pixels);
-            texture.Apply(true);
-            return texture;
-        }
-
-        private static void MakeFacadeTextures(out Texture2D albedo, out Texture2D emission)
-        {
-            const int cells = 4;
-            const int cell = 32;
-            const int size = cells * cell;
-            albedo = new Texture2D(size, size, TextureFormat.RGBA32, true, false) { name = "Facade", wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
-            emission = new Texture2D(size, size, TextureFormat.RGBA32, true, false) { name = "Facade glow", wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
-            Color[] colours = new Color[size * size];
-            Color[] glow = new Color[size * size];
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    int cx = x % cell, cy = y % cell;
-                    int gx = x / cell, gy = y / cell;
-                    float lit = Hash(gx * 13 + 1, gy * 7 + 2);
-                    bool isLit = lit < 0.4f;
-                    Color wall = new Color(1f, 1f, 1f, 1f) * Mathf.Lerp(0.94f, 1f, cy / (float)cell);
-                    if (cy < 3) wall *= 0.8f;
-                    bool inside = cx >= 7 && cx < 25 && cy >= 8 && cy < 26;
-                    bool frame = inside && (cx == 7 || cx == 24 || cy == 8 || cy == 25);
-                    Color pixel = wall;
-                    Color emit = Color.black;
-                    if (frame)
-                    {
-                        pixel = new Color(0.28f, 0.28f, 0.3f, 1f);
-                    }
-                    else if (inside)
-                    {
-                        float gradient = (cy - 8) / 18f;
-                        if (isLit)
-                        {
-                            pixel = Color.Lerp(new Color(1f, 0.74f, 0.4f), new Color(1f, 0.9f, 0.62f), gradient);
-                            emit = pixel;
-                        }
-                        else
-                        {
-                            pixel = Color.Lerp(new Color(0.16f, 0.23f, 0.31f), new Color(0.42f, 0.54f, 0.66f), gradient);
-                        }
-                    }
-                    else if (cy >= 26 && cy < 28)
-                    {
-                        pixel = wall * 0.88f; // lintel
-                    }
-                    colours[y * size + x] = pixel;
-                    glow[y * size + x] = emit;
-                }
-            }
-            albedo.SetPixels(colours);
-            albedo.Apply(true);
-            emission.SetPixels(glow);
-            emission.Apply(true);
-        }
-
-        private static float Hash(int x, int y)
-        {
-            unchecked
-            {
-                uint h = (uint)(x * 374761393 + y * 668265263);
-                h = (h ^ (h >> 13)) * 1274126177u;
-                return ((h ^ (h >> 16)) & 0xffff) / 65535f;
-            }
         }
     }
 }

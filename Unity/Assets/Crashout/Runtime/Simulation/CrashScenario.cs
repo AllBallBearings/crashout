@@ -36,7 +36,9 @@ namespace Crashout.Simulation
         public int Silver;
         public int Gold;
         public int TargetBonus = 25000;
-        public Vector3 PlayerStart = new Vector3(1.5f, 0.56f, -22f);
+        /// <summary>The approach road the player launches from, far outside the board.</summary>
+        public RunwayProfile Runway = RunwayProfile.Flat(-22f);
+        public Vector3 PlayerStart => Runway.PlayerStart;
         public readonly List<TrafficSpawn> Traffic = new List<TrafficSpawn>();
 
         public CrashMedal MedalFor(int score)
@@ -89,6 +91,12 @@ namespace Crashout.Simulation
             Lane(s, true, 1f, EastOuter, 10.5f, At(-21f, VehicleClass.Hatch), At(-12.5f, VehicleClass.Sedan), At(-4f, VehicleClass.Pickup), At(5f, VehicleClass.Van), At(13f, VehicleClass.Sedan));
             Lane(s, true, -1f, WestInner, 9.5f, At(23f, VehicleClass.Van), At(14f, VehicleClass.Sedan), At(6f, VehicleClass.Hatch), At(-2.5f, VehicleClass.Pickup));
             Lane(s, true, -1f, WestOuter, 11.5f, At(21f, VehicleClass.Sedan), At(9.5f, VehicleClass.Bus), At(-2f, VehicleClass.Hatch), At(-10f, VehicleClass.Sedan));
+            // Launch from the brow of a hill nearly two board-lengths out and drop onto the junction.
+            s.Runway = new RunwayProfile { Style = RunwayStyle.Hilltop, Title = "HILLTOP DROP", StartZ = -124f, FarZ = -190f }
+                .Point(-190f, 16f)
+                .Point(-112f, 16f, 20f)
+                .Point(-50f, 0f, 26f)
+                .Point(RunwayProfile.BoardEdgeZ, 0f);
             return s;
         }
 
@@ -106,6 +114,12 @@ namespace Crashout.Simulation
             Lane(s, true, 1f, EastOuter, 12f, At(-22f, VehicleClass.Sedan), At(-12f, VehicleClass.Bus), At(0f, VehicleClass.Pickup, true), At(8f, VehicleClass.Sedan), At(15f, VehicleClass.Van));
             Lane(s, true, -1f, WestInner, 10.5f, At(23f, VehicleClass.Pickup), At(16f, VehicleClass.Hatch), At(9f, VehicleClass.Sedan), At(2f, VehicleClass.Van), At(-5f, VehicleClass.Sedan));
             Lane(s, true, -1f, WestOuter, 13f, At(22f, VehicleClass.Van), At(12f, VehicleClass.Sedan), At(2f, VehicleClass.Bus), At(-10f, VehicleClass.Hatch));
+            // An elevated expressway crosses the river on a cable-stayed span, then ramps down into town.
+            s.Runway = new RunwayProfile { Style = RunwayStyle.Overpass, Title = "THE OVERPASS", StartZ = -118f, FarZ = -230f }
+                .Point(-230f, 9f)
+                .Point(-72f, 9f, 22f)
+                .Point(-34f, 0f, 16f)
+                .Point(RunwayProfile.BoardEdgeZ, 0f);
             return s;
         }
 
@@ -126,6 +140,13 @@ namespace Crashout.Simulation
             // Southbound cross traffic keeps the player's own approach busy.
             Lane(s, false, -1f, -1.25f, 9f, At(22f, VehicleClass.Hatch), At(12f, VehicleClass.Sedan));
             Lane(s, false, -1f, -3.75f, 11f, At(16f, VehicleClass.Van));
+            // Out of a mountain tunnel, down a steep pass and off a kicker ramp into the junction.
+            s.Runway = new RunwayProfile { Style = RunwayStyle.MountainPass, Title = "MOUNTAIN PASS", StartZ = -129f, FarZ = -168f }
+                .Point(-168f, 13f)
+                .Point(-120f, 13f, 16f)
+                .Point(-76f, 0f, 22f)
+                .Point(RunwayProfile.BoardEdgeZ, 0f)
+                .WithRamp(-62f, 16f, 0.7f);
             return s;
         }
 
