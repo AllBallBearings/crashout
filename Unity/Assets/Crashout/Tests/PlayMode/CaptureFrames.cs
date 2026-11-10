@@ -77,6 +77,7 @@ namespace Crashout.Tests
                 while (session.Phase != GamePhase.Results && Time.realtimeSinceStartup < deadline) yield return null;
                 yield return new WaitForSecondsRealtime(1f);
                 yield return Capture(prefix + "-g-results.png");
+                yield return CaptureOverview(prefix + "-h-overview.png", session.Runway.FarZ);
             }
             finally
             {
@@ -85,6 +86,24 @@ namespace Crashout.Tests
                 InputSystem.settings.editorInputBehaviorInPlayMode = previousRouting;
 #endif
                 InputSystem.RemoveDevice(keyboard);
+            }
+        }
+
+        /// <summary>The whole diorama, board and runway arm, from high off its south-east corner.</summary>
+        private static IEnumerator CaptureOverview(string path, float farZ)
+        {
+            Camera camera = Camera.main;
+            var rig = camera.GetComponent<Crashout.Presentation.CrashoutCameraRig>();
+            if (rig != null) rig.enabled = false;
+            Vector3 focus = new Vector3(0f, 0f, (farZ + RunwayProfile.BoardHalfExtent) * 0.5f);
+            camera.transform.SetPositionAndRotation(focus + new Vector3(95f, 85f, -40f), Quaternion.LookRotation(focus - (focus + new Vector3(95f, 85f, -40f)), Vector3.up));
+            try
+            {
+                yield return Capture(path);
+            }
+            finally
+            {
+                if (rig != null) rig.enabled = true;
             }
         }
 

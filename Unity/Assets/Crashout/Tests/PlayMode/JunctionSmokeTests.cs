@@ -80,9 +80,10 @@ namespace Crashout.Tests
                 for (int tick = 0; tick < 900 && trafficHit == 0; tick++)
                 {
                     // Inject key state on the test device, not driver commands or forces.
-                    // A lane change: steer right, then straighten up so the car stays on the runway.
-                    InputState.Change(keyboard, tick >= 35 && tick < 50 ? new KeyboardState(Key.W, Key.D)
-                        : tick >= 50 && tick < 65 ? new KeyboardState(Key.W, Key.A)
+                    // An S-bend: out to the right and back into the lane, so the car still meets the traffic.
+                    InputState.Change(keyboard, tick >= 35 && tick < 47 ? new KeyboardState(Key.W, Key.D)
+                        : tick >= 47 && tick < 71 ? new KeyboardState(Key.W, Key.A)
+                        : tick >= 71 && tick < 83 ? new KeyboardState(Key.W, Key.D)
                         : new KeyboardState(Key.W));
                     keyboard.MakeCurrent();
                     yield return new WaitForFixedUpdate();

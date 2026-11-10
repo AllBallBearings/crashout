@@ -14,6 +14,11 @@ namespace Crashout.Vehicle
 
         private Rigidbody body;
         private float loopExtent;
+        // Beyond this distance from the junction a car is inside an edge portal: it keeps its schedule
+        // but is hidden, weightless and cannot collide until it re-emerges.
+        private float visibleExtent;
+        private bool inTunnel;
+        private Renderer[] renderers;
         private BoxCollider box;
         private bool driveEnabled = true;
         private Vector3 travelDirection = Vector3.right;
@@ -74,6 +79,7 @@ namespace Crashout.Vehicle
             body.position = position;
             transform.position = position;
             speedBias = 0f;
+            UpdateTunnel();
         }
 
         /// <summary>
@@ -101,6 +107,7 @@ namespace Crashout.Vehicle
         public void DisableDrive()
         {
             driveEnabled = false;
+            SetInTunnel(false);
         }
 
         private void OnEnable()
@@ -117,9 +124,13 @@ namespace Crashout.Vehicle
         /// Cars that leave the board re-enter at the far side so the junction never runs out of
         /// traffic, however late the player launches. Zero disables looping.
         /// </summary>
-        public void SetLoopExtent(float extent)
+        /// <param name="extent">Where the lane wraps, measured from the junction.</param>
+        /// <param name="visible">Where cars enter the edge portals and drop out of sight; defaults to <paramref name="extent"/>.</param>
+        public void SetLoopExtent(float extent, float visible = 0f)
         {
             loopExtent = extent;
+            visibleExtent = visible > 0f ? Mathf.Min(visible, extent) : extent;
+            UpdateTunnel();
         }
 
         public void ResetController()
@@ -128,6 +139,33 @@ namespace Crashout.Vehicle
             speedBias = 0f;
             if (body == null) body = GetComponent<Rigidbody>();
             body.linearVelocity = Vector3.zero;
+            UpdateTunnel();
+        }
+
+        private void UpdateTunnel()
+        {
+            if (body == null || loopExtent <= 0f) return;
+            float along = laneRunsAlongX ? body.position.x : body.position.z;
+            SetInTunnel(driveEnabled && Mathf.Abs(along) > visibleExtent);
+        }
+
+        private void SetInTunnel(bool hidden)
+        {
+            if (hidden == inTunnel || body == null) return;
+            inTunnel = hidden;
+            if (renderers == null) renderers = GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer r in renderers)
+            {
+                if (r != null) r.enabled = !hidden;
+            }
+            body.useGravity = !hidden;
+            body.detectCollisions = !hidden;
+            if (hidden)
+            {
+                Vector3 v = body.linearVelocity;
+                body.linearVelocity = new Vector3(v.x, 0f, v.z);
+                body.angularVelocity = Vector3.zero;
+            }
         }
 
         /// <summary>Traffic is released already up to speed, on the player's launch.</summary>
@@ -149,7 +187,11 @@ namespace Crashout.Vehicle
                 return;
             }
 
-            if (loopExtent > 0f) WrapAround();
+            if (loopExtent > 0f)
+            {
+                WrapAround();
+                UpdateTunnel();
+            }
 
             Vector3 forward = transform.forward;
             float forwardSpeed = Vector3.Dot(body.linearVelocity, forward);
@@ -179,9 +221,12 @@ namespace Crashout.Vehicle
             float sign = Mathf.Sign(laneRunsAlongX ? travelDirection.x : travelDirection.z);
             if (along * sign <= loopExtent) return;
 
-            // Re-enter at the far edge, backing off until the spot is clear of other cars in this lane.
-            float entry = -sign * loopExtent;
-            for (int attempt = 0; attempt < 5; attempt++)
+            // Re-enter at the far edge keeping the overshoot, so a lane's spacing (and every car's
+            // schedule) survives the wrap. Only when the entry is in plain sight, with no portal to
+            // hide in, back off until the spot is clear of other cars in this lane.
+            float entry = along - sign * loopExtent * 2f;
+            bool entryHidden = visibleExtent < loopExtent - 0.5f;
+            for (int attempt = 0; attempt < 5 && !entryHidden; attempt++)
             {
                 bool clear = true;
                 foreach (TrafficVehicle other in All)
@@ -200,7 +245,7 @@ namespace Crashout.Vehicle
                 : new Vector3(laneCoordinate, body.position.y, entry);
             body.position = position;
             body.rotation = Quaternion.LookRotation(travelDirection, Vector3.up);
-            body.linearVelocity = travelDirection * targetSpeed;
+            body.linearVelocity = travelDirection * (targetSpeed + speedBias);
             body.angularVelocity = Vector3.zero;
         }
     }

@@ -421,6 +421,33 @@ namespace Crashout.Presentation
             });
         }
 
+        /// <summary>
+        /// Soil and rock strata for the cut faces of a diorama: wavy beds of topsoil, clay, sand and
+        /// rock with pebbles. Six beds per tile, tileable in both directions.
+        /// </summary>
+        public static SurfaceSet Strata(int size = 256, int seed = 141)
+        {
+            Color[] beds = { new Color(0.27f, 0.19f, 0.13f), new Color(0.46f, 0.33f, 0.22f), new Color(0.6f, 0.5f, 0.36f), new Color(0.42f, 0.4f, 0.37f) };
+            return Build("Strata", size, size, 3f, (float u, float v, out Color c, out float h, out float m, out float s) =>
+            {
+                float warp = Fbm(u, v, 4, 3, seed) - 0.5f;
+                float coordinate = v * 6f + warp * 1.2f;
+                int bed = Mathf.FloorToInt(coordinate);
+                float within = coordinate - bed;
+                float pick = Hash(Wrap(bed, 6), 3, seed);
+                c = beds[Mathf.Min(beds.Length - 1, Mathf.FloorToInt(pick * beds.Length))];
+                float grain = Value(u * 64f, v * 64f, 64, seed + 7);
+                float pebbles = SmoothStep(0.86f, 0.93f, Value(u * 40f, v * 40f, 40, seed + 9));
+                float seam = SmoothStep(0.07f, 0f, within);
+                c *= (0.85f + grain * 0.25f) * (1f - seam * 0.3f);
+                c = Color.Lerp(c, beds[3] * 0.8f, pebbles * 0.6f);
+                c.a = 1f;
+                h = grain * 0.3f + pebbles * 0.8f - seam * 0.5f;
+                m = 0f;
+                s = 0.1f;
+            });
+        }
+
         /// <summary>Layered sedimentary rock with fractures. Tiles every ~8 m.</summary>
         public static SurfaceSet Rock(int size = 512, int seed = 81)
         {

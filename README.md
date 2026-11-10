@@ -38,7 +38,9 @@ Scenarios live in `Runtime/Simulation/CrashScenario.cs` and vehicle classes in `
 
 ## Approach runways
 
-Every junction now starts far outside the 52 m board, one to two board-lengths out and well above it, so the run-in builds tension before the pile-up:
+The board stays a single 52 m diorama: one city block on a plinth, built out to its edges, with tunnel portals where the roads leave it (looping traffic disappears inside them). Each junction adds a runway arm, a panhandle that reaches off the board's south edge, so the run-in builds tension before the pile-up. The arm is only as wide as the road and its verges, cut square at its sides and end to show the strata, and stands on the same plinth. Off the AR table the diorama sits on a dark display floor; nothing else extends past the board.
+
+Every run starts one to two board-lengths out along the arm and well above the board:
 
 | Junction | Approach | Start |
 | --- | --- | --- |

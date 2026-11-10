@@ -70,7 +70,7 @@ Do this by playing, not by reading. Numbers below are the first guesses and wher
 | Boost | 3.2 s, 2.1x force, 1.45x top speed | `ArcadeVehicleController` |
 | Launch meter | 1.1 s sweep, green zone 0.80 to 0.95, perfect = +$2,500 and 1.3 s free boost | `CrashoutGameSession` constants |
 | Auto-acceleration after launch | cruises to 20 m/s, GAS and BOOST go faster | `CrashoutGameSession.FixedUpdate` |
-| Traffic loop distance | 24 m on the table, 34 m in the virtual city | `CrashoutBootstrapper` (`loopExtent`) |
+| Traffic loop distance | Lanes wrap at 34 m; cars are hidden past 24 m, inside the edge portals | `CrashoutBootstrapper` (`LoopExtent`, `VisibleExtent`) |
 | Joystick | 54 pt for full lock, 12% deadzone, lower-left half of the screen | `CrashoutHud` constants |
 | Audio mix | engine 0.5, boost 0.45, ambience 0.22, impacts up to 1.0 | `CrashAudio` |
 

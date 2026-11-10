@@ -15,31 +15,37 @@ namespace Crashout.Presentation
         private Mesh lampMesh;
         private Mesh lampHeadMesh;
 
+        /// <summary>Elevation of the underside of the board plinth; the runway arms share it.</summary>
+        internal const float DioramaBase = -1.45f;
+        /// <summary>Top of the plinth band the board and runway arms sit on.</summary>
+        internal const float PlinthTop = -0.35f;
+
+        /// <summary>
+        /// Builds the board: one bounded city block diorama on a plinth. Nothing extends past the board
+        /// except each junction's runway arm. On the AR table the real table is the floor; elsewhere a
+        /// dark display floor stands in for it.
+        /// </summary>
         public Transform BuildCity(Transform parent, bool tabletop = false)
         {
-            float reach = tabletop ? RunwayProfile.BoardHalfExtent : 150f;
+            float reach = RunwayProfile.BoardHalfExtent;
             float south = RunwayProfile.BoardHalfExtent;
             Transform root = new GameObject("City").transform;
             root.SetParent(parent, false);
 
-            if (tabletop)
+            Slab(root, "Ground", new Vector3(0f, -0.2f, 0f), new Vector3(52f, 0.3f, 52f), 0.08f, ground, true);
+            // A bevelled plinth so the board reads as a premium diorama.
+            Slab(root, "Board plinth", new Vector3(0f, (PlinthTop + DioramaBase) * 0.5f, 0f), new Vector3(53.2f, PlinthTop - DioramaBase, 53.2f), 0.4f, darkMetal, false);
+            if (!tabletop)
             {
-                Slab(root, "Ground", new Vector3(0f, -0.2f, 0f), new Vector3(52f, 0.3f, 52f), 0.08f, ground, true);
-                // A bevelled plinth so the board reads as a premium diorama on the table.
-                Slab(root, "Board plinth", new Vector3(0f, -0.9f, 0f), new Vector3(53.2f, 1.1f, 53.2f), 0.4f, darkMetal, false);
-            }
-            else
-            {
-                // The south is open country owned by each junction's runway; the city spreads north, east and west.
-                float northExtent = 350f;
-                Slab(root, "Ground", new Vector3(0f, -0.2f, (northExtent - south) * 0.5f), new Vector3(700f, 0.3f, northExtent + south), 0.01f, ground, true);
+                GameObject floor = Slab(root, "Display floor", new Vector3(0f, DioramaBase - 0.25f, -60f), new Vector3(1600f, 0.5f, 1600f), 0.02f, displayFloor, true, null, false);
+                floor.isStatic = true;
             }
 
             float northLength = reach + south;
             Slab(root, "North / South road", new Vector3(0f, 0f, (reach - south) * 0.5f), new Vector3(10f, 0.08f, northLength), 0.02f, asphalt, true);
             Slab(root, "East / West road", new Vector3(0f, 0.01f, 0f), new Vector3(reach * 2f, 0.08f, 10f), 0.02f, asphalt, true);
 
-            float sidewalkFar = tabletop ? reach : reach - 35f;
+            float sidewalkFar = reach;
             for (int sx = -1; sx <= 1; sx += 2)
             {
                 for (int sz = -1; sz <= 1; sz += 2)
@@ -56,8 +62,8 @@ namespace Crashout.Presentation
 
             BuildRoadMarkings(root, reach, south);
             BuildCornerBlocks(root);
-            if (!tabletop) BuildSkyline(root);
-            BuildStreetFurniture(root, tabletop);
+            BuildBoardBlocks(root);
+            BuildStreetFurniture(root);
             BuildSignals(root);
 
             // The orange construction barrier on the south-east corner (a collider the player can hit).
@@ -190,56 +196,154 @@ namespace Crashout.Presentation
             }
         }
 
-        private void BuildSkyline(Transform root)
+        // Footprints on the board, in metres from the junction centre. Corner blocks sit at 6.4..12.4.
+        private const float FrontageCentre = 10.1f;
+        private const float FrontageWidth = 5.4f;
+        private const float FrontageAlong = 16.6f;
+        private const float FrontageDepth = 6f;
+        private const float InnerCentre = 19.9f;
+        private const float InnerSize = 11.4f;
+        private const float EdgeCentre = 23.1f;
+        private const float EdgeDepth = 5.8f;
+        private const float PortalHalfWidth = 5.3f;
+        private const float PortalHeight = 5.8f;
+
+        /// <summary>
+        /// Fills the board out to its edges: street frontages, an inner block in each quadrant, portal
+        /// buildings where the roads leave the board (looping traffic disappears inside them) and a
+        /// gateway with a skybridge where the runway arrives from the south.
+        /// </summary>
+        private void BuildBoardBlocks(Transform root)
         {
-            float[] centres = { 11.5f, 22f, 34f, 48f, 66f };
-            var kit = new BatchedMeshes();
-            for (int ix = 0; ix < centres.Length; ix++)
+            var detail = new BatchedMeshes();
+            float[] frontHeights = { 15f, 11.5f, 18f, 13f, 12f, 16.5f, 14f, 10.5f };
+            float[] innerHeights = { 22f, 36f, 27f, 18f };
+            int f = 0, quadrant = 0;
+            for (int sx = -1; sx <= 1; sx += 2)
             {
-                for (int iz = 0; iz < centres.Length; iz++)
+                for (int sz = -1; sz <= 1; sz += 2)
                 {
-                    if (ix == 0 && iz == 0) continue;
-                    for (int sx = -1; sx <= 1; sx += 2)
-                    {
-                        for (int sz = -1; sz <= 1; sz += 2)
-                        {
-                            // South of the board belongs to the runway landscape.
-                            if (sz < 0 && centres[iz] > 24f) continue;
-                            int seed = ix * 31 + iz * 17 + (sx > 0 ? 5 : 0) + (sz > 0 ? 11 : 0);
-                            float randomA = Hash(seed, 3);
-                            float randomB = Hash(seed, 9);
-                            float distance = Mathf.Max(centres[ix], centres[iz]);
-                            float height = Mathf.Lerp(10f, 26f, randomA) + distance * Mathf.Lerp(0.15f, 0.7f, randomB);
-                            float width = Mathf.Lerp(7.4f, 8.8f, randomB);
-                            float depth = Mathf.Lerp(7.4f, 8.8f, randomA);
-                            Vector3 centre = new Vector3(sx * centres[ix], height * 0.5f, sz * centres[iz]);
-                            bool tower = randomA > 0.72f && distance > 30f;
-                            Material facade = tower ? glassTower : facades[seed % facades.Length];
-                            Slab(root, tower ? "Glass tower" : "Skyline building", centre, new Vector3(width, height, depth), 0.06f, facade, false);
-                            if (tower)
-                            {
-                                // Floor plates and mullions read as a curtain wall.
-                                for (float y = 3.6f; y < height - 1f; y += 3.6f)
-                                {
-                                    kit.For(concreteDark).Box(new Vector3(centre.x, y, centre.z), new Vector3(width + 0.08f, 0.32f, depth + 0.08f), Quaternion.identity);
-                                }
-                                for (float x = -width * 0.5f + 1.5f; x < width * 0.5f; x += 1.5f)
-                                {
-                                    kit.For(darkMetal).Box(new Vector3(centre.x + x, height * 0.5f, centre.z - sz * (depth * 0.5f + 0.02f)), new Vector3(0.08f, height, 0.06f), Quaternion.identity);
-                                    kit.For(darkMetal).Box(new Vector3(centre.x + x, height * 0.5f, centre.z + sz * (depth * 0.5f + 0.02f)), new Vector3(0.08f, height, 0.06f), Quaternion.identity);
-                                }
-                            }
-                            Building(root, centre, new Vector3(width, height, depth), seed, distance < 40f);
-                        }
-                    }
+                    Block(root, detail, new Vector3(sx * FrontageCentre, 0f, sz * FrontageAlong), new Vector3(FrontageWidth, frontHeights[f], FrontageDepth), 200 + f, false);
+                    f++;
+                    Block(root, detail, new Vector3(sx * FrontageAlong, 0f, sz * FrontageCentre), new Vector3(FrontageDepth, frontHeights[f], FrontageWidth), 200 + f, false);
+                    f++;
+                    bool glass = quadrant == 1 || quadrant == 2;
+                    Block(root, detail, new Vector3(sx * InnerCentre, 0f, sz * InnerCentre), new Vector3(InnerSize, innerHeights[quadrant], InnerSize), 240 + quadrant, glass);
+                    quadrant++;
                 }
             }
-            kit.Emit(root, "Skyline detail");
+            Portal(root, detail, Vector3.forward, 19f, 260);
+            Portal(root, detail, Vector3.right, 16f, 261);
+            Portal(root, detail, Vector3.left, 21f, 262);
+            Gateway(root, detail);
+            detail.Emit(root, "Board block detail");
         }
 
-        private void BuildStreetFurniture(Transform root, bool tabletop)
+        private void Block(Transform root, BatchedMeshes detail, Vector3 footprint, Vector3 size, int seed, bool glass)
         {
-            float[] along = tabletop ? new[] { 16f, 23f } : new[] { 16f, 23f, 30f, 40f, 54f, 68f };
+            Vector3 centre = new Vector3(footprint.x, size.y * 0.5f, footprint.z);
+            Material facade = glass ? glassTower : facades[seed % facades.Length];
+            Slab(root, glass ? "Glass tower" : "Building", centre, size, 0.05f, facade, true);
+            if (glass) CurtainWall(detail, centre, size);
+            Building(root, centre, size, seed, true);
+        }
+
+        /// <summary>Floor plates and mullions so a glass block reads as a curtain wall.</summary>
+        private void CurtainWall(BatchedMeshes detail, Vector3 centre, Vector3 size)
+        {
+            float bottom = centre.y - size.y * 0.5f;
+            for (float y = 3.6f; y < size.y - 1f; y += 3.6f)
+            {
+                detail.For(concreteDark).Box(new Vector3(centre.x, bottom + y, centre.z), new Vector3(size.x + 0.08f, 0.32f, size.z + 0.08f), Quaternion.identity);
+            }
+            for (int face = -1; face <= 1; face += 2)
+            {
+                for (float x = -size.x * 0.5f + 1.5f; x < size.x * 0.5f; x += 1.5f)
+                {
+                    detail.For(darkMetal).Box(new Vector3(centre.x + x, centre.y, centre.z + face * (size.z * 0.5f + 0.02f)), new Vector3(0.08f, size.y, 0.06f), Quaternion.identity);
+                }
+                for (float z = -size.z * 0.5f + 1.5f; z < size.z * 0.5f; z += 1.5f)
+                {
+                    detail.For(darkMetal).Box(new Vector3(centre.x + face * (size.x * 0.5f + 0.02f), centre.y, centre.z + z), new Vector3(0.06f, size.y, 0.08f), Quaternion.identity);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A building straddling a road where it leaves the board. Traffic loops at 24 m, inside the
+        /// dark tunnel, so cars drive into the city beyond rather than popping out of existence.
+        /// </summary>
+        private void Portal(Transform root, BatchedMeshes detail, Vector3 outward, float height, int seed)
+        {
+            Vector3 side = Vector3.Cross(Vector3.up, outward);
+            Quaternion turn = Quaternion.LookRotation(outward, Vector3.up);
+            Vector3 euler = turn.eulerAngles;
+            Vector3 middle = outward * EdgeCentre;
+            float outer = FrontageCentre + FrontageWidth * 0.5f;
+            float pierWidth = outer - PortalHalfWidth;
+            Material facade = facades[seed % facades.Length];
+            for (int s = -1; s <= 1; s += 2)
+            {
+                Vector3 pier = middle + side * (s * (PortalHalfWidth + pierWidth * 0.5f)) + Vector3.up * (height * 0.5f);
+                Slab(root, "Portal pier", pier, new Vector3(pierWidth, height, EdgeDepth), 0.05f, facade, true, euler);
+            }
+            float lintelHeight = height - PortalHeight;
+            Slab(root, "Portal lintel", middle + Vector3.up * (PortalHeight + lintelHeight * 0.5f), new Vector3(PortalHalfWidth * 2f, lintelHeight, EdgeDepth), 0.05f, facade, true, euler);
+            Vector3 worldSize = new Vector3(Mathf.Abs(outward.x) > 0.5f ? EdgeDepth : outer * 2f, height, Mathf.Abs(outward.x) > 0.5f ? outer * 2f : EdgeDepth);
+            Building(root, middle + Vector3.up * (height * 0.5f), worldSize, seed, true);
+
+            // Concrete frame around the opening, a black lining and a row of tunnel lights.
+            float near = EdgeCentre - EdgeDepth * 0.5f;
+            Vector3 mouth = outward * (near - 0.15f);
+            detail.For(concrete).Box(mouth + Vector3.up * (PortalHeight + 0.3f), Abs(turn * new Vector3(PortalHalfWidth * 2f + 1f, 0.6f, 0.4f)), Quaternion.identity);
+            for (int s = -1; s <= 1; s += 2)
+            {
+                detail.For(concrete).Box(mouth + side * (s * (PortalHalfWidth + 0.25f)) + Vector3.up * (PortalHeight * 0.5f), Abs(turn * new Vector3(0.5f, PortalHeight, 0.4f)), Quaternion.identity);
+                detail.For(underbody).Box(middle + side * (s * (PortalHalfWidth - 0.05f)) + Vector3.up * (PortalHeight * 0.5f), Abs(turn * new Vector3(0.1f, PortalHeight, EdgeDepth)), Quaternion.identity);
+            }
+            detail.For(underbody).Box(middle + Vector3.up * (PortalHeight - 0.05f), Abs(turn * new Vector3(PortalHalfWidth * 2f, 0.1f, EdgeDepth)), Quaternion.identity);
+            detail.For(underbody).Box(outward * (RunwayProfile.BoardHalfExtent - 0.05f) + Vector3.up * (PortalHeight * 0.5f), Abs(turn * new Vector3(PortalHalfWidth * 2f, PortalHeight, 0.1f)), Quaternion.identity);
+            for (float a = near + 0.6f; a < RunwayProfile.BoardHalfExtent - 0.5f; a += 1.6f)
+            {
+                for (int s = -1; s <= 1; s += 2)
+                {
+                    detail.For(lampGlow).Box(outward * a + side * (s * (PortalHalfWidth - 0.6f)) + Vector3.up * (PortalHeight - 0.14f), Abs(turn * new Vector3(0.12f, 0.06f, 0.9f)), Quaternion.identity);
+                }
+            }
+        }
+
+        /// <summary>Twin towers and a glazed skybridge framing the runway's arrival on the south edge.</summary>
+        private void Gateway(Transform root, BatchedMeshes detail)
+        {
+            float[] heights = { 24f, 20.5f };
+            for (int s = -1; s <= 1; s += 2)
+            {
+                Vector3 footprint = new Vector3(s * FrontageCentre, 0f, -EdgeCentre);
+                Block(root, detail, footprint, new Vector3(FrontageWidth, heights[(s + 1) / 2], EdgeDepth), 270 + s, false);
+            }
+            float span = (FrontageCentre - FrontageWidth * 0.5f) * 2f + 0.4f;
+            Vector3 bridge = new Vector3(0f, 9.9f, -EdgeCentre);
+            Slab(root, "Skybridge", bridge, new Vector3(span, 3.4f, 3f), 0.05f, glassTower, true);
+            detail.For(concreteDark).Box(bridge + Vector3.down * 1.62f, new Vector3(span, 0.35f, 3.2f), Quaternion.identity);
+            detail.For(concreteDark).Box(bridge + Vector3.up * 1.62f, new Vector3(span, 0.35f, 3.2f), Quaternion.identity);
+            for (float x = -span * 0.5f + 1.2f; x < span * 0.5f; x += 1.2f)
+            {
+                for (int face = -1; face <= 1; face += 2)
+                {
+                    detail.For(darkMetal).Box(bridge + new Vector3(x, 0f, face * 1.52f), new Vector3(0.07f, 3.4f, 0.05f), Quaternion.identity);
+                }
+            }
+            for (float x = -span * 0.5f + 1f; x < span * 0.5f; x += 2f)
+            {
+                detail.For(lampGlow).Box(bridge + new Vector3(x, -1.82f, 0f), new Vector3(0.6f, 0.04f, 0.2f), Quaternion.identity);
+            }
+        }
+
+        private static Vector3 Abs(Vector3 v) => new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
+
+        private void BuildStreetFurniture(Transform root)
+        {
+            float[] along = { 15.2f, 18.6f };
             for (int arm = 0; arm < 4; arm++)
             {
                 Vector3 forward = arm == 0 ? Vector3.forward : arm == 1 ? Vector3.back : arm == 2 ? Vector3.right : Vector3.left;
@@ -248,10 +352,9 @@ namespace Crashout.Presentation
                 {
                     for (int i = 0; i < along.Length; i++)
                     {
-                        if (arm == 1 && along[i] > 24f) continue;
                         Vector3 position = forward * along[i] + side * (s * 5.9f);
                         if (i % 2 == 0) Lamp(root, position, -side * s);
-                        else Tree(root, position + side * (s * 0.6f), Hash(arm * 7 + i, s + 3));
+                        else Tree(root, position + side * (s * 0.35f), Hash(arm * 7 + i, s + 3));
                     }
                 }
                 // Hydrant and bollards near each corner.

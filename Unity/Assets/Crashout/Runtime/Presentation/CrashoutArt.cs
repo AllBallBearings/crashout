@@ -39,6 +39,8 @@ namespace Crashout.Presentation
         private readonly Material concrete;
         private readonly Material concreteDark;
         private readonly Material ground;
+        private readonly Material displayFloor;
+        private readonly Material strata;
         private readonly Material lanePaint;
         private readonly Material whitePaint;
         private readonly Material roofMaterial;
@@ -111,6 +113,8 @@ namespace Crashout.Presentation
             concrete = Surface("Concrete", concreteSet, 4f, new Color(1f, 0.98f, 0.95f), 1f, 0.8f);
             concreteDark = Surface("Concrete dark", concreteSet, 4f, new Color(0.62f, 0.62f, 0.62f), 1f, 0.8f);
             ground = Surface("City ground", pavingSet, 3f, new Color(0.62f, 0.6f, 0.58f), 1f, 0.6f);
+            displayFloor = Lit("Display floor", new Color(0.075f, 0.08f, 0.085f), 0f, 0.55f);
+            strata = Surface("Diorama strata", ProceduralTextures.Strata(), 6f, Color.white, 0.6f, 1f);
             rock = Surface("Rock", rockSet, 8f, Color.white, 1f, 1.2f);
             bark = Surface("Bark", rockSet, 1.5f, new Color(0.55f, 0.4f, 0.3f), 0.6f, 1.4f);
             foliage = Surface("Foliage", foliageSet, 2.2f, Color.white, 1f, 1f);

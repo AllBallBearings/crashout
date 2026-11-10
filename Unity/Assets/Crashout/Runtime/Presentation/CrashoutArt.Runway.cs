@@ -7,8 +7,9 @@ namespace Crashout.Presentation
     /// <summary>
     /// The approach roads. Each junction launches the player from far outside the board and high
     /// above it: the brow of a hill, a cable-stayed expressway over a river, or a mountain pass that
-    /// ends in a kicker ramp. The road, barriers and ramp are colliders; the landscape is dressing.
-    /// On the AR table only the road structure is built (it reaches off the board like a model).
+    /// ends in a kicker ramp. The runway is a panhandle: a narrow diorama arm reaching off the south
+    /// edge of the board, cut square at its sides and end and standing on the same plinth. The road,
+    /// barriers and ramp are colliders; the arm's ground is dressing.
     /// </summary>
     public sealed partial class CrashoutArt
     {
@@ -18,14 +19,14 @@ namespace Crashout.Presentation
 
         private Mesh[] conifers;
 
-        public Transform BuildRunway(Transform parent, RunwayProfile runway, bool tabletop)
+        public Transform BuildRunway(Transform parent, RunwayProfile runway)
         {
             Transform root = new GameObject("Runway " + runway.Title).transform;
             root.SetParent(parent, false);
             if (runway.DistanceBeyondBoard < 1f) return root;
 
             List<float> zs = Samples(runway);
-            BuildRoadDeck(root, runway, zs, tabletop);
+            BuildRoadDeck(root, runway, zs);
             BuildBarriers(root, runway, zs);
             BuildStartLine(root, runway);
             BuildGantry(root, runway, -58f);
@@ -34,18 +35,15 @@ namespace Crashout.Presentation
             switch (runway.Style)
             {
                 case RunwayStyle.Overpass:
-                    BuildViaduct(root, runway, tabletop);
+                    BuildViaduct(root, runway);
                     break;
                 case RunwayStyle.MountainPass:
                     BuildTunnel(root, runway);
                     break;
             }
 
-            if (!tabletop)
-            {
-                BuildTerrain(root, runway);
-                BuildLandscapeDressing(root, runway);
-            }
+            BuildArm(root, runway);
+            BuildArmDressing(root, runway);
             return root;
         }
 
@@ -64,7 +62,7 @@ namespace Crashout.Presentation
 
         // ------------------------------------------------------------------ road
 
-        private void BuildRoadDeck(Transform root, RunwayProfile runway, List<float> zs, bool tabletop)
+        private void BuildRoadDeck(Transform root, RunwayProfile runway, List<float> zs)
         {
             var left = new List<Vector3>();
             var right = new List<Vector3>();
@@ -113,8 +111,7 @@ namespace Crashout.Presentation
                     outer.Add(RoadPoint(runway, side * KerbOuter, z, 0.12f));
                     topOuter.Add(RoadPoint(runway, side * KerbOuter, z, 0.12f));
                     float depth = runway.Style == RunwayStyle.Overpass ? 1.4f : 1.2f;
-                    if (tabletop && runway.Style != RunwayStyle.Overpass) depth = runway.HeightAt(z) + 0.2f;
-                    bottomOuter.Add(RoadPoint(runway, side * KerbOuter, z, -Mathf.Max(0.4f, depth)));
+                    bottomOuter.Add(RoadPoint(runway, side * KerbOuter, z, -depth));
                 }
                 kerbs.Strip(inner, outer, Vector3.up, 0.25f, 0.7f);
                 // Kerb face down to the asphalt.
@@ -128,9 +125,8 @@ namespace Crashout.Presentation
             foreach (float z in zs)
             {
                 float depth = runway.Style == RunwayStyle.Overpass ? 1.4f : 1.2f;
-                if (tabletop && runway.Style != RunwayStyle.Overpass) depth = runway.HeightAt(z) + 0.2f;
-                underside.Add(RoadPoint(runway, -KerbOuter, z, -Mathf.Max(0.4f, depth)));
-                undersideRight.Add(RoadPoint(runway, KerbOuter, z, -Mathf.Max(0.4f, depth)));
+                underside.Add(RoadPoint(runway, -KerbOuter, z, -depth));
+                undersideRight.Add(RoadPoint(runway, KerbOuter, z, -depth));
             }
             fascia.Strip(underside, undersideRight, Vector3.down, 0.25f, 11.4f);
             MeshKit.Spawn(root, "Runway kerbs", kerbs.ToMesh("Runway kerbs"), concrete);
@@ -315,9 +311,12 @@ namespace Crashout.Presentation
 
         private const float RiverCentreZ = -102f;
         private const float RiverHalfWidth = 10f;
-        private const float RiverWater = -2.4f;
+        private const float RiverSurface = -0.7f;
+        private const float RiverBed = -1.15f;
+        /// <summary>Half the width of the runway arm: the road, its verges and nothing more.</summary>
+        private const float ArmHalfWidth = 11f;
 
-        private void BuildViaduct(Transform root, RunwayProfile runway, bool tabletop)
+        private void BuildViaduct(Transform root, RunwayProfile runway)
         {
             var piers = new MeshKit();
             for (float z = runway.FarZ + 6f; z < RunwayProfile.BoardEdgeZ - 6f; z += 16f)
@@ -325,10 +324,10 @@ namespace Crashout.Presentation
                 float h = runway.HeightAt(z);
                 if (h < 2.4f) continue;
                 if (Mathf.Abs(z - RiverCentreZ) < RiverHalfWidth + 2f) continue;
-                float bottom = tabletop ? 0f : TerrainHeight(runway, 0f, z) - 0.5f;
                 float capY = RunwayProfile.RoadSurfaceY + h - 1.4f;
                 for (int side = -1; side <= 1; side += 2)
                 {
+                    float bottom = ArmHeight(runway, side * 3.2f, z) - 0.3f;
                     piers.Cylinder(new Vector3(side * 3.2f, bottom, z), new Vector3(side * 3.2f, capY - 0.6f, z), 0.65f, 0.55f, 18);
                 }
                 piers.Box(new Vector3(0f, capY - 0.35f, z), new Vector3(10.4f, 0.8f, 1.6f), Quaternion.identity);
@@ -373,7 +372,7 @@ namespace Crashout.Presentation
 
             // A cable-stayed main span over the river.
             float deckY = RunwayProfile.RoadSurfaceY + runway.HeightAt(RiverCentreZ);
-            float baseY = tabletop ? 0f : RiverWater - 1.5f;
+            float baseY = RiverBed;
             var pylon = new MeshKit();
             var cables = new MeshKit();
             for (int side = -1; side <= 1; side += 2)
@@ -408,8 +407,8 @@ namespace Crashout.Presentation
             Vector3 portal = RoadPoint(runway, 0f, portalZ, 0f);
             var face = new MeshKit();
             // Portal wall with a horseshoe opening framed by a thick concrete arch.
-            face.Box(portal + new Vector3(-9.5f, 5f, 0f), new Vector3(7f, 12f, 1.4f), Quaternion.identity);
-            face.Box(portal + new Vector3(9.5f, 5f, 0f), new Vector3(7f, 12f, 1.4f), Quaternion.identity);
+            face.Box(portal + new Vector3(-8.6f, 5f, 0f), new Vector3(4.8f, 12f, 1.4f), Quaternion.identity);
+            face.Box(portal + new Vector3(8.6f, 5f, 0f), new Vector3(4.8f, 12f, 1.4f), Quaternion.identity);
             face.Box(portal + new Vector3(0f, 9.5f, 0f), new Vector3(12f, 5f, 1.4f), Quaternion.identity);
             var arch = new MeshKit();
             for (int i = 0; i < 16; i++)
@@ -445,264 +444,241 @@ namespace Crashout.Presentation
             MeshKit.Spawn(root, "Tunnel lights", lights.ToMesh("Tunnel lights"), sodium, false);
         }
 
-        // ------------------------------------------------------------------ landscape
+        // ------------------------------------------------------------------ the arm
 
-        private float TerrainHeight(RunwayProfile runway, float x, float z)
+        /// <summary>Ground height of the runway arm at (x, z). The arm only spans |x| &lt;= ArmHalfWidth.</summary>
+        private float ArmHeight(RunwayProfile runway, float x, float z)
         {
             float ax = Mathf.Abs(x);
-            float roadZ = Mathf.Max(z, runway.FarZ);
-            float road = runway.HeightAt(Mathf.Min(roadZ, RunwayProfile.BoardEdgeZ));
-            float noise = ProceduralTextures.Value(x / 38f + 100f, z / 38f + 100f, 0, 5) - 0.5f;
-            float detail = ProceduralTextures.Value(x / 11f + 50f, z / 11f + 50f, 0, 9) - 0.5f;
-            float natural;
-            float carve = 1f;
+            float road = RunwayProfile.RoadSurfaceY + runway.HeightAt(Mathf.Clamp(z, runway.FarZ, RunwayProfile.BoardEdgeZ));
+            float noise = ProceduralTextures.Value(x / 6f + 100f, z / 9f + 100f, 0, 5) - 0.5f;
+            float verge = ProceduralTextures.SmoothStep(KerbOuter + 0.3f, ArmHalfWidth, ax);
+            // The last few metres settle to board level so the arm meets the board flush.
+            float away = ProceduralTextures.SmoothStep(RunwayProfile.BoardEdgeZ, RunwayProfile.BoardEdgeZ - 10f, z);
+            float h;
             switch (runway.Style)
             {
                 case RunwayStyle.Overpass:
                 {
-                    natural = noise * 0.8f + detail * 0.3f;
-                    float distanceFromRiver = Mathf.Abs(z - RiverCentreZ);
-                    natural = Mathf.Lerp(-4.2f, natural, ProceduralTextures.SmoothStep(RiverHalfWidth - 0.5f, RiverHalfWidth + 0.5f, distanceFromRiver));
-                    natural += ProceduralTextures.SmoothStep(-170f, -300f, z) * (18f + noise * 30f) * ProceduralTextures.SmoothStep(20f, 90f, ax);
-                    carve = ProceduralTextures.SmoothStep(3f, 0.5f, road) * ProceduralTextures.SmoothStep(-60f, -45f, z);
+                    // Water meadow at board level under the viaduct, cut by the river.
+                    h = -0.06f + noise * 0.3f * verge;
+                    float channel = ProceduralTextures.SmoothStep(RiverHalfWidth + 0.6f, RiverHalfWidth - 0.4f, Mathf.Abs(z - RiverCentreZ));
+                    h = Mathf.Lerp(h, RiverBed, channel);
                     break;
                 }
                 case RunwayStyle.MountainPass:
                 {
-                    float valley = Mathf.Lerp(9f, 46f, ProceduralTextures.SmoothStep(-110f, -40f, z));
-                    float cliff = Mathf.Min(Mathf.Max(0f, ax - valley) * 1.25f, 48f + noise * 18f);
-                    natural = road + cliff + noise * 6f + detail * 2.5f;
+                    // A rock cutting: walls rise from the verges, and the mountain closes over the tunnel.
+                    float walls = ProceduralTextures.SmoothStep(KerbOuter + 0.8f, ArmHalfWidth - 0.4f, ax) * (8f + noise * 6f);
+                    h = road - 0.16f - verge * 0.3f + walls * away;
                     float portalZ = runway.StartZ - 16f;
-                    natural += ProceduralTextures.SmoothStep(portalZ + 1f, portalZ - 8f, z) * 26f * (1f - ProceduralTextures.SmoothStep(25f, 70f, ax));
-                    natural += ProceduralTextures.SmoothStep(-140f, -320f, z) * (40f + noise * 40f);
-                    carve = ProceduralTextures.SmoothStep(portalZ - 1f, portalZ + 2f, z);
+                    float mass = ProceduralTextures.SmoothStep(portalZ + 0.6f, portalZ - 1.2f, z);
+                    h = Mathf.Lerp(h, Mathf.Max(h, road + 9.6f + noise * 1.5f), mass);
                     break;
                 }
                 default:
-                {
-                    float shoulders = road * (1f - 0.55f * ProceduralTextures.SmoothStep(30f, 150f, ax));
-                    natural = shoulders + noise * 9f * ProceduralTextures.SmoothStep(12f, 50f, ax) + detail * 1.5f;
-                    natural += ProceduralTextures.SmoothStep(-150f, -320f, z) * (22f + noise * 20f);
-                    natural += ProceduralTextures.SmoothStep(60f, 220f, ax) * ProceduralTextures.SmoothStep(-30f, -120f, z) * 14f;
+                    // The hill itself: the road runs along its crest and the shoulders roll off to the cut.
+                    h = road - 0.16f - verge * (0.5f + noise * 0.9f);
                     break;
-                }
             }
-            float corridor = ProceduralTextures.SmoothStep(6.4f, 18f, ax);
-            float carved = Mathf.Lerp(road - 0.9f, natural, corridor);
-            float height = Mathf.Lerp(natural, carved, carve);
-            // Meet the city ground at the board edge.
-            float edge = ProceduralTextures.SmoothStep(RunwayProfile.BoardEdgeZ, RunwayProfile.BoardEdgeZ - 16f, z);
-            return Mathf.Lerp(-0.12f, height, edge);
+            return Mathf.Lerp(-0.06f, h, away);
         }
 
-        private void BuildTerrain(Transform root, RunwayProfile runway)
+        /// <summary>
+        /// The panhandle: a terrain strip as wide as the road and its verges, cut square at the sides
+        /// and far end to show the strata, standing on a plinth that matches the board's.
+        /// </summary>
+        private void BuildArm(Transform root, RunwayProfile runway)
         {
-            const float step = 3.5f;
-            float x0 = -260f, x1 = 260f;
-            float z0 = Mathf.Min(runway.FarZ - 140f, -320f), z1 = RunwayProfile.BoardEdgeZ;
-            int nx = Mathf.CeilToInt((x1 - x0) / step) + 1;
+            float z0 = runway.FarZ, z1 = RunwayProfile.BoardEdgeZ;
+            const float step = 1f;
+            int nx = Mathf.RoundToInt(ArmHalfWidth * 2f / step) + 1;
             int nz = Mathf.CeilToInt((z1 - z0) / step) + 1;
             var heights = new float[nx * nz];
             System.Threading.Tasks.Parallel.For(0, nz, j =>
             {
                 float z = Mathf.Min(z1, z0 + j * step);
-                for (int i = 0; i < nx; i++) heights[j * nx + i] = TerrainHeight(runway, x0 + i * step, z);
+                for (int i = 0; i < nx; i++) heights[j * nx + i] = ArmHeight(runway, -ArmHalfWidth + i * step, z);
             });
 
-            var kit = new MeshKit();
+            var top = new MeshKit();
             for (int j = 0; j < nz; j++)
             {
                 float z = Mathf.Min(z1, z0 + j * step);
                 for (int i = 0; i < nx; i++)
                 {
-                    float x = x0 + i * step;
-                    kit.Vertex(new Vector3(x, heights[j * nx + i], z), Vector3.up, new Vector2((x - x0) / (x1 - x0), (z - z0) / (z1 - z0)));
+                    float x = -ArmHalfWidth + i * step;
+                    top.Vertex(new Vector3(x, heights[j * nx + i], z), Vector3.up, new Vector2((float)i / (nx - 1), (z - z0) / (z1 - z0)));
                 }
             }
-            kit.Grid(0, nz, nx);
-            Mesh mesh = kit.ToMesh("Terrain", true);
+            top.Grid(0, nz, nx);
+            GameObject ground = MeshKit.Spawn(root, "Arm ground", top.ToMesh("Arm ground", true), ArmGroundMaterial(runway), true, true);
+            ground.isStatic = true;
 
-            // Colour map from height, slope and noise.
-            const int size = 512;
-            var pixels = new Color32[size * size];
-            RunwayStyle style = runway.Style;
-            System.Threading.Tasks.Parallel.For(0, size, py =>
+            // Cut faces: both sides and the far end, from the ground down to the base.
+            var cut = new MeshKit();
+            for (int side = -1; side <= 1; side += 2)
             {
-                for (int px = 0; px < size; px++)
+                int column = side < 0 ? 0 : nx - 1;
+                Vector3 normal = Vector3.right * side;
+                for (int j = 0; j + 1 < nz; j++)
                 {
-                    float u = px / (float)(size - 1), v = py / (float)(size - 1);
-                    float fx = u * (nx - 1), fz = v * (nz - 1);
-                    int i = Mathf.Min(nx - 2, (int)fx), j = Mathf.Min(nz - 2, (int)fz);
-                    float h00 = heights[j * nx + i], h10 = heights[j * nx + i + 1], h01 = heights[(j + 1) * nx + i];
-                    float slope = Mathf.Sqrt((h10 - h00) * (h10 - h00) + (h01 - h00) * (h01 - h00)) / step;
-                    float x = x0 + u * (x1 - x0), z = z0 + v * (z1 - z0);
-                    float n = ProceduralTextures.Value(x / 23f, z / 23f, 0, 77);
-                    float n2 = ProceduralTextures.Value(x / 6f, z / 6f, 0, 79);
+                    float za = Mathf.Min(z1, z0 + j * step), zb = Mathf.Min(z1, z0 + (j + 1) * step);
+                    float x = side * ArmHalfWidth;
+                    float ha = heights[j * nx + column], hb = heights[(j + 1) * nx + column];
+                    int a = cut.Vertex(new Vector3(x, DioramaBase, za), normal, new Vector2(za, DioramaBase));
+                    int b = cut.Vertex(new Vector3(x, ha, za), normal, new Vector2(za, ha));
+                    int c = cut.Vertex(new Vector3(x, hb, zb), normal, new Vector2(zb, hb));
+                    int d = cut.Vertex(new Vector3(x, DioramaBase, zb), normal, new Vector2(zb, DioramaBase));
+                    cut.Quad(a, b, c, d);
+                }
+            }
+            for (int i = 0; i + 1 < nx; i++)
+            {
+                float xa = -ArmHalfWidth + i * step, xb = xa + step;
+                float ha = heights[i], hb = heights[i + 1];
+                int a = cut.Vertex(new Vector3(xa, DioramaBase, z0), Vector3.back, new Vector2(xa, DioramaBase));
+                int b = cut.Vertex(new Vector3(xa, ha, z0), Vector3.back, new Vector2(xa, ha));
+                int c = cut.Vertex(new Vector3(xb, hb, z0), Vector3.back, new Vector2(xb, hb));
+                int d = cut.Vertex(new Vector3(xb, DioramaBase, z0), Vector3.back, new Vector2(xb, DioramaBase));
+                cut.Quad(a, b, c, d);
+            }
+            MeshKit.Spawn(root, "Arm strata", cut.ToMesh("Arm strata"), strata);
+
+            // The plinth band, proud of the cut faces exactly as the board's is.
+            float length = z1 - z0;
+            Slab(root, "Arm plinth", new Vector3(0f, (PlinthTop + DioramaBase) * 0.5f, z0 + length * 0.5f - 0.3f),
+                new Vector3(ArmHalfWidth * 2f + 1.2f, PlinthTop - DioramaBase, length + 0.6f), 0.4f, darkMetal, false);
+        }
+
+        private Material ArmGroundMaterial(RunwayProfile runway)
+        {
+            const int width = 96, height = 1024;
+            float z0 = runway.FarZ, z1 = RunwayProfile.BoardEdgeZ;
+            RunwayStyle style = runway.Style;
+            var pixels = new Color32[width * height];
+            System.Threading.Tasks.Parallel.For(0, height, py =>
+            {
+                for (int px = 0; px < width; px++)
+                {
+                    float x = Mathf.Lerp(-ArmHalfWidth, ArmHalfWidth, px / (float)(width - 1));
+                    float z = Mathf.Lerp(z0, z1, py / (float)(height - 1));
+                    float h = ArmHeight(runway, x, z);
+                    float slope = (Mathf.Abs(ArmHeight(runway, x + 0.5f, z) - h) + Mathf.Abs(ArmHeight(runway, x, z + 0.5f) - h)) * 2f;
+                    float n = ProceduralTextures.Value(x / 5f, z / 9f, 0, 77);
+                    float n2 = ProceduralTextures.Value(x / 1.7f, z / 1.7f, 0, 79);
                     Color grass = Color.Lerp(new Color(0.19f, 0.24f, 0.1f), new Color(0.32f, 0.34f, 0.17f), n);
-                    if (style == RunwayStyle.MountainPass) grass = Color.Lerp(new Color(0.16f, 0.22f, 0.1f), new Color(0.3f, 0.3f, 0.16f), n);
+                    if (style == RunwayStyle.MountainPass) grass = Color.Lerp(new Color(0.16f, 0.21f, 0.1f), new Color(0.28f, 0.29f, 0.17f), n);
                     Color dry = new Color(0.46f, 0.42f, 0.26f);
                     Color dirt = new Color(0.34f, 0.27f, 0.19f);
                     Color stone = Color.Lerp(new Color(0.36f, 0.34f, 0.31f), new Color(0.5f, 0.47f, 0.42f), n2);
                     Color c = Color.Lerp(grass, dry, ProceduralTextures.SmoothStep(0.6f, 0.95f, n) * 0.6f);
-                    // Only genuinely steep ground loses its grass; rolling hills stay green.
                     c = Color.Lerp(c, dirt, ProceduralTextures.SmoothStep(0.55f, 0.9f, slope) * 0.7f);
                     c = Color.Lerp(c, stone, ProceduralTextures.SmoothStep(0.9f, 1.4f, slope));
-                    float corridor = ProceduralTextures.SmoothStep(9f, 6f, Mathf.Abs(x));
-                    c = Color.Lerp(c, new Color(0.32f, 0.3f, 0.27f), corridor * 0.8f);
-                    if (style == RunwayStyle.Overpass && Mathf.Abs(z - RiverCentreZ) < RiverHalfWidth + 1f) c = new Color(0.17f, 0.15f, 0.12f);
+                    // Gravel verge beside the kerbs.
+                    c = Color.Lerp(c, new Color(0.33f, 0.31f, 0.28f), ProceduralTextures.SmoothStep(7.2f, 6f, Mathf.Abs(x)) * 0.85f);
+                    if (style == RunwayStyle.Overpass && Mathf.Abs(z - RiverCentreZ) < RiverHalfWidth + 0.5f) c = new Color(0.16f, 0.14f, 0.11f);
                     c *= Mathf.Lerp(0.88f, 1.08f, n2);
                     c.a = 1f;
-                    pixels[py * size + px] = c;
+                    pixels[py * width + px] = c;
                 }
             });
-            var colourMap = new Texture2D(size, size, TextureFormat.RGBA32, true, false) { name = "Terrain colour", wrapMode = TextureWrapMode.Clamp, anisoLevel = 8 };
+            var colourMap = new Texture2D(width, height, TextureFormat.RGBA32, true, false) { name = "Arm colour", wrapMode = TextureWrapMode.Clamp, anisoLevel = 8 };
             colourMap.SetPixels32(pixels);
             colourMap.Apply(true, true);
 
-            Material material = Lit("Terrain " + runway.Title, Color.white, 0f, 0.12f);
+            Material material = Lit("Arm ground " + runway.Title, Color.white, 0f, 0.12f);
             material.SetTexture("_BaseMap", colourMap);
-            Detail(material, 3.5f, x1 - x0);
-            GameObject terrain = MeshKit.Spawn(root, "Terrain", mesh, material, true, true);
-            terrain.isStatic = true;
+            Detail(material, 3.5f, 1f);
+            material.SetTextureScale("_DetailAlbedoMap", new Vector2(ArmHalfWidth * 2f / 3.5f, (z1 - z0) / 3.5f));
+            return material;
         }
 
-        private void BuildLandscapeDressing(Transform root, RunwayProfile runway)
+        private void BuildArmDressing(Transform root, RunwayProfile runway)
         {
             var batch = new BatchedMeshes();
             EnsureTrees();
             EnsureConifers();
             bool mountain = runway.Style == RunwayStyle.MountainPass;
             bool overpass = runway.Style == RunwayStyle.Overpass;
-            float zFar = Mathf.Min(runway.FarZ - 80f, -260f);
-            for (float z = RunwayProfile.BoardEdgeZ - 8f; z > zFar; z -= 7f)
+            float portalZ = runway.StartZ - 16f;
+            for (float z = RunwayProfile.BoardEdgeZ - 5f; z > runway.FarZ + 2.5f; z -= 4.5f)
             {
-                for (float x = -230f; x <= 230f; x += 7f)
+                for (int side = -1; side <= 1; side += 2)
                 {
-                    int hx = Mathf.RoundToInt(x), hz = Mathf.RoundToInt(z);
-                    float jx = x + (Hash(hx, hz) - 0.5f) * 6f;
-                    float jz = z + (Hash(hz, hx) - 0.5f) * 6f;
-                    float ax = Mathf.Abs(jx);
-                    if (ax < 10f) continue;
-                    if (overpass && Mathf.Abs(jz - RiverCentreZ) < RiverHalfWidth + 3f) continue;
-                    float h = TerrainHeight(runway, jx, jz);
-                    float slope = Mathf.Abs(TerrainHeight(runway, jx + 2f, jz) - h) + Mathf.Abs(TerrainHeight(runway, jx, jz + 2f) - h);
-                    if (slope > 3.2f) continue;
-                    float density = ProceduralTextures.Value(jx / 45f, jz / 45f, 0, 13);
-                    float chance = mountain ? 0.35f + density * 0.55f : overpass ? 0.12f + density * 0.25f : 0.1f + density * 0.45f;
-                    if (ax < 18f) chance *= 0.4f;
-                    if (Hash(hx * 3 + 1, hz * 5 + 2) > chance) continue;
-                    float scale = Mathf.Lerp(0.8f, 1.5f, Hash(hx + 7, hz + 9));
-                    Matrix4x4 m = Matrix4x4.TRS(new Vector3(jx, h - 0.2f, jz), Quaternion.Euler(0f, Hash(hx, hz + 3) * 360f, 0f), Vector3.one * scale);
-                    bool pine = mountain || (Hash(hx + 2, hz) < 0.25f && !overpass);
+                    int hz = Mathf.RoundToInt(z * 3f) + side * 101;
+                    if (Hash(hz, 7) > (mountain ? 0.6f : 0.45f)) continue;
+                    if (overpass && Mathf.Abs(z - RiverCentreZ) < RiverHalfWidth + 2f) continue;
+                    if (mountain && z < portalZ + 3f) continue;
+                    float x = side * Mathf.Lerp(7.4f, mountain ? 8.4f : ArmHalfWidth - 1.6f, Hash(hz, 9));
+                    float jz = z + (Hash(hz, 11) - 0.5f) * 2.5f;
+                    float h = ArmHeight(runway, x, jz);
+                    float scale = Mathf.Lerp(0.65f, 1.05f, Hash(hz, 13));
+                    Matrix4x4 m = Matrix4x4.TRS(new Vector3(x, h - 0.15f, jz), Quaternion.Euler(0f, Hash(hz, 15) * 360f, 0f), Vector3.one * scale);
+                    bool pine = mountain || (!overpass && Hash(hz, 17) < 0.3f);
                     if (pine)
                     {
-                        int variant = (hx + hz * 3) & 1;
+                        int variant = hz & 1;
                         batch.For(bark).Append(conifers[variant * 2], m);
                         batch.For(conifer).Append(conifers[variant * 2 + 1], m);
                     }
                     else
                     {
-                        int variant = Mathf.Abs(hx * 7 + hz) % treeBark.Length;
+                        int variant = Mathf.Abs(hz) % treeBark.Length;
                         batch.For(bark).Append(treeBark[variant], m);
                         batch.For(foliage).Append(treeLeaves[variant], m);
                     }
                 }
             }
 
-            // Boulders scattered on slopes and in the mountain valley.
-            int boulders = mountain ? 70 : 24;
+            // A few boulders on the verges.
+            int boulders = mountain ? 22 : 8;
             for (int b = 0; b < boulders; b++)
             {
-                float x = (Hash(b, 91) - 0.5f) * 160f;
-                if (Mathf.Abs(x) < 8f) x += Mathf.Sign(x) * 8f;
-                float z = Mathf.Lerp(-34f, -200f, Hash(b, 93));
+                float side = Hash(b, 91) > 0.5f ? 1f : -1f;
+                float x = side * Mathf.Lerp(6.6f, mountain ? 8.6f : ArmHalfWidth - 0.8f, Hash(b, 92));
+                float z = Mathf.Lerp(RunwayProfile.BoardEdgeZ - 6f, runway.FarZ + 4f, Hash(b, 93));
                 if (overpass && Mathf.Abs(z - RiverCentreZ) < RiverHalfWidth + 2f) continue;
-                float h = TerrainHeight(runway, x, z);
-                float size = Mathf.Lerp(0.6f, mountain ? 3.6f : 1.8f, Hash(b, 95) * Hash(b, 97));
+                if (mountain && z < portalZ + 2f) continue;
+                float size = Mathf.Lerp(0.4f, mountain ? 1.6f : 1f, Hash(b, 95) * Hash(b, 97));
                 var rockKit = new MeshKit();
                 rockKit.Blob(Vector3.zero, new Vector3(size * 1.2f, size * 0.7f, size), 2, 0.7f, b);
-                batch.For(rock).Append(rockKit.ToMesh("Boulder"), Matrix4x4.TRS(new Vector3(x, h, z), Quaternion.Euler(0f, b * 37f, 0f), Vector3.one));
+                batch.For(rock).Append(rockKit.ToMesh("Boulder"), Matrix4x4.TRS(new Vector3(x, ArmHeight(runway, x, z), z), Quaternion.Euler(0f, b * 37f, 0f), Vector3.one));
             }
 
-            if (overpass) BuildRiver(root, batch);
-            else BuildHouses(root, runway, batch, mountain ? 4 : 12);
-            batch.Emit(root, "Landscape");
+            if (overpass) BuildArmRiver(root, batch);
+            batch.Emit(root, "Arm dressing");
         }
 
-        private void BuildRiver(Transform root, BatchedMeshes batch)
+        /// <summary>The river crosses the arm in a channel; the cut faces show it like resin water in a model.</summary>
+        private void BuildArmRiver(Transform root, BatchedMeshes batch)
         {
+            float width = ArmHalfWidth * 2f, span = RiverHalfWidth * 2f + 1f;
             var surface = new MeshKit();
-            surface.Panel(new Vector3(0f, RiverWater, RiverCentreZ), Vector3.up, Vector3.forward, 560f, RiverHalfWidth * 2f + 1f);
-            Mesh water = surface.ToMesh("River");
-            // Panel UVs are 0..1; scale to metres for the ripple normal map.
+            surface.Panel(new Vector3(0f, RiverSurface, RiverCentreZ), Vector3.up, Vector3.forward, width, span);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                // Water seen through the cut, slightly proud of the strata.
+                surface.Panel(new Vector3(side * (ArmHalfWidth + 0.01f), (RiverSurface + RiverBed) * 0.5f, RiverCentreZ), Vector3.right * side, Vector3.up, span, RiverSurface - RiverBed);
+            }
+            Mesh mesh = surface.ToMesh("River");
             var uv = new List<Vector2>();
-            water.GetUVs(0, uv);
-            for (int i = 0; i < uv.Count; i++) uv[i] = new Vector2(uv[i].x * 560f, uv[i].y * 21f);
-            water.SetUVs(0, uv);
-            GameObject river = MeshKit.Spawn(root, "River", water, this.water, false);
+            mesh.GetUVs(0, uv);
+            for (int i = 0; i < uv.Count; i++) uv[i] = new Vector2(uv[i].x * width, uv[i].y * span);
+            mesh.SetUVs(0, uv);
+            GameObject river = MeshKit.Spawn(root, "River", mesh, water, false);
             river.GetComponent<MeshRenderer>().receiveShadows = true;
             river.AddComponent<WaterScroller>();
 
             for (int bank = -1; bank <= 1; bank += 2)
             {
                 float z = RiverCentreZ + bank * (RiverHalfWidth + 0.3f);
-                batch.For(concrete).Box(new Vector3(0f, -2.1f, z), new Vector3(520f, 4.4f, 0.6f), Quaternion.identity);
-                batch.For(darkMetal).Box(new Vector3(0f, 0.55f, z), new Vector3(520f, 0.06f, 0.06f), Quaternion.identity);
-                for (float x = -250f; x < 250f; x += 2.5f)
+                batch.For(concrete).Box(new Vector3(0f, (RiverBed + 0.05f) * 0.5f, z), new Vector3(width, 0.05f - RiverBed, 0.6f), Quaternion.identity);
+                batch.For(darkMetal).Box(new Vector3(0f, 0.85f, z), new Vector3(width, 0.06f, 0.06f), Quaternion.identity);
+                for (float x = -ArmHalfWidth + 0.5f; x < ArmHalfWidth; x += 2.5f)
                 {
-                    batch.For(darkMetal).Box(new Vector3(x, 0.3f, z), new Vector3(0.05f, 0.6f, 0.05f), Quaternion.identity);
+                    batch.For(darkMetal).Box(new Vector3(x, 0.45f, z), new Vector3(0.05f, 0.8f, 0.05f), Quaternion.identity);
                 }
-            }
-
-            // Warehouses and depots along the far banks.
-            for (int i = 0; i < 14; i++)
-            {
-                float side = i % 2 == 0 ? -1f : 1f;
-                float x = side * (20f + Hash(i, 1) * 140f);
-                float z = RiverCentreZ + (Hash(i, 2) > 0.5f ? -1f : 1f) * (RiverHalfWidth + 14f + Hash(i, 3) * 40f);
-                if (z > -40f) continue;
-                Vector3 size = new Vector3(14f + Hash(i, 4) * 16f, 7f + Hash(i, 5) * 9f, 12f + Hash(i, 6) * 10f);
-                Material facade = facades[i % facades.Length];
-                Slab(root, "Warehouse", new Vector3(x, size.y * 0.5f - 0.1f, z), size, 0.08f, facade, false);
-                Building(root, new Vector3(x, size.y * 0.5f - 0.1f, z), size, i + 40, false);
-            }
-        }
-
-        /// <summary>Suburban houses on the hillsides, for scale.</summary>
-        private void BuildHouses(Transform root, RunwayProfile runway, BatchedMeshes batch, int count)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                float side = i % 2 == 0 ? -1f : 1f;
-                float x = side * (22f + Hash(i, 11) * 70f);
-                float z = Mathf.Lerp(-45f, -175f, Hash(i, 12));
-                float h = TerrainHeight(runway, x, z);
-                float w = 7f + Hash(i, 13) * 3f, d = 8f + Hash(i, 14) * 4f, wall = 3.2f + Hash(i, 15) * 2.6f;
-                Quaternion turn = Quaternion.Euler(0f, side > 0 ? -90f : 90f, 0f);
-                Vector3 centre = new Vector3(x, h + wall * 0.5f - 0.4f, z);
-                GameObject house = Slab(root, "House", centre, new Vector3(w, wall + 0.8f, d), 0.04f, facades[(i * 3 + 1) % facades.Length], false);
-                house.transform.rotation = turn;
-                // Pitched roof.
-                var roof = new MeshKit();
-                float ridge = wall * 0.5f + 0.4f + w * 0.32f;
-                Vector3 a = new Vector3(-w * 0.55f, wall * 0.5f + 0.4f, -d * 0.52f), b = new Vector3(w * 0.55f, wall * 0.5f + 0.4f, -d * 0.52f);
-                Vector3 c = new Vector3(0f, ridge, -d * 0.52f);
-                Vector3 a2 = a + Vector3.forward * d * 1.04f, b2 = b + Vector3.forward * d * 1.04f, c2 = c + Vector3.forward * d * 1.04f;
-                int ia = roof.Vertex(a, (Vector3.left + Vector3.up).normalized, new Vector2(0f, 0f));
-                int ic = roof.Vertex(c, (Vector3.left + Vector3.up).normalized, new Vector2(0f, w * 0.6f));
-                int ic2 = roof.Vertex(c2, (Vector3.left + Vector3.up).normalized, new Vector2(d, w * 0.6f));
-                int ia2 = roof.Vertex(a2, (Vector3.left + Vector3.up).normalized, new Vector2(d, 0f));
-                roof.Quad(ia, ic, ic2, ia2);
-                int ib = roof.Vertex(b, (Vector3.right + Vector3.up).normalized, new Vector2(0f, 0f));
-                int jc = roof.Vertex(c, (Vector3.right + Vector3.up).normalized, new Vector2(0f, w * 0.6f));
-                int jc2 = roof.Vertex(c2, (Vector3.right + Vector3.up).normalized, new Vector2(d, w * 0.6f));
-                int ib2 = roof.Vertex(b2, (Vector3.right + Vector3.up).normalized, new Vector2(d, 0f));
-                roof.Quad(ib, jc, jc2, ib2);
-                int ga = roof.Vertex(a, Vector3.back, Vector2.zero), gb = roof.Vertex(b, Vector3.back, Vector2.right), gc = roof.Vertex(c, Vector3.back, Vector2.up);
-                roof.Triangle(ga, gb, gc);
-                int ha = roof.Vertex(a2, Vector3.forward, Vector2.zero), hb = roof.Vertex(b2, Vector3.forward, Vector2.right), hc = roof.Vertex(c2, Vector3.forward, Vector2.up);
-                roof.Triangle(ha, hb, hc);
-                batch.For(awningMaterial).Append(roof.ToMesh("Roof"), Matrix4x4.TRS(centre, turn, Vector3.one));
             }
         }
 
