@@ -15,6 +15,8 @@ namespace Crashout.Editor
         private static readonly string[] ShaderNames =
         {
             "Universal Render Pipeline/Lit",
+            "Universal Render Pipeline/Complex Lit",
+            "Universal Render Pipeline/Particles/Unlit",
             "Skybox/Procedural",
             "Sprites/Default"
         };

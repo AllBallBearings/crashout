@@ -15,9 +15,13 @@ namespace Crashout.Bootstrap
         private ArcadeVehicleController player;
         private ResettableBody playerReset;
         private int scenarioIndex;
-        private float loopExtent = 34f;
+        // Lanes loop 34 m out (the schedules are tuned to that period), but cars drop out of sight
+        // 24 m out, inside the portal buildings on the board's edges, and re-emerge from the far portal.
+        private const float LoopExtent = 34f;
+        private const float VisibleExtent = 24f;
         private CrashoutArt art;
         private Transform city;
+        private Transform runwayWorld;
         private PhysicsMaterial rollingContact;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -37,20 +41,21 @@ namespace Crashout.Bootstrap
 
             art = new CrashoutArt();
             bool useAr = ArTabletopMode.ShouldUseAr;
-            // On the table the traffic loops inside the 52 m board; in the virtual city it loops farther out.
-            loopExtent = useAr ? 24f : 34f;
             art.ApplyAtmosphere(transform, useAr);
             city = art.BuildCity(transform, useAr);
+            art.InstallReflections(transform);
 
             session = gameObject.AddComponent<CrashoutGameSession>();
             player = CreatePlayer(session);
 
             CrashoutCameraRig cameraRig = CreateCamera();
-            art.InstallPostProcessing(cameraRig.GetComponent<Camera>(), transform);
+            VolumeProfile look = art.InstallPostProcessing(cameraRig.GetComponent<Camera>(), transform, useAr);
+            CinematicFx cinematic = gameObject.AddComponent<CinematicFx>();
+            cinematic.Configure(session, cameraRig, look, useAr);
             CrashoutHud hud = gameObject.AddComponent<CrashoutHud>();
             CrashFx fx = gameObject.AddComponent<CrashFx>();
             CrashAudio crashAudio = gameObject.AddComponent<CrashAudio>();
-            fx.Configure(session, cameraRig);
+            fx.Configure(session, cameraRig, cinematic);
             cameraRig.Configure(session, player);
             hud.Configure(session, cameraRig);
             session.Configure(player, cameraRig, vehicles);
@@ -108,6 +113,9 @@ namespace Crashout.Bootstrap
             trafficObjects.Clear();
             vehicles.RemoveAll(v => v == null || !v.IsPlayerVehicle);
 
+            // Each junction brings its own approach road and landscape, far outside the board.
+            if (runwayWorld != null) Destroy(runwayWorld.gameObject);
+            runwayWorld = art.BuildRunway(transform, scenario.Runway);
             playerReset.SetStartPose(scenario.PlayerStart, Quaternion.identity);
 
             uint targetId = 0;
@@ -125,6 +133,7 @@ namespace Crashout.Bootstrap
                 DamageableVehicle target = vehicles.Find(v => v.EntityId == targetId);
                 if (target != null) art.CreateTargetMarker(target.transform, VehicleSpec.For(target.Class).RootHeight + VehicleSpec.For(target.Class).ColliderSize.y * 0.5f + 0.9f, session, targetId);
             }
+            art.RefreshReflections();
         }
 
         private DamageableVehicle CreateTrafficVehicle(TrafficSpawn spawn, uint id)
@@ -144,9 +153,9 @@ namespace Crashout.Bootstrap
             }
 
             VehicleSpec spec = VehicleSpec.For(spawn.Class);
-            Color colour = spawn.Class == VehicleClass.Bus ? new Color(0.98f, 0.74f, 0.08f)
-                : spawn.Class == VehicleClass.Tanker ? new Color(0.88f, 0.14f, 0.1f)
-                : CrashoutArt.TrafficPalette[(int)(id * 3) % CrashoutArt.TrafficPalette.Length];
+            Color colour = spawn.Class == VehicleClass.Bus ? new Color(0.92f, 0.62f, 0.06f)
+                : spawn.Class == VehicleClass.Tanker ? new Color(0.62f, 0.05f, 0.04f)
+                : CrashoutArt.TrafficPalette[(int)(id * 5) % CrashoutArt.TrafficPalette.Length];
             Material paint = art.CreatePaint(colour, "Traffic paint " + id);
             GameObject car = art.CreateCar("Traffic " + id, paint, spawn.Class, false, out _, out _);
             car.transform.SetPositionAndRotation(spawn.Position, Quaternion.LookRotation(spawn.Direction, Vector3.up));
@@ -157,7 +166,7 @@ namespace Crashout.Bootstrap
             collider.sharedMaterial = rollingContact;
             TrafficVehicle traffic = car.AddComponent<TrafficVehicle>();
             traffic.Configure(spawn.Direction, spawn.Lane, spawn.Speed, spawn.AlongX);
-            traffic.SetLoopExtent(loopExtent);
+            traffic.SetLoopExtent(LoopExtent, VisibleExtent);
             body.mass = spec.Mass;
             body.centerOfMass = new Vector3(0f, spawn.Class == VehicleClass.Bus || spawn.Class == VehicleClass.Tanker ? -0.35f : -0.12f, 0f);
             body.maxAngularVelocity = 14f;
@@ -170,17 +179,13 @@ namespace Crashout.Bootstrap
             return damageable;
         }
 
-        // AR is unavailable here, so swap the tabletop diorama for the full virtual city.
+        // AR is unavailable here, so put the diorama on the virtual display floor under a virtual sky.
         private void UseVirtualWorld()
         {
             if (city != null) Destroy(city.gameObject);
             city = art.BuildCity(transform, false);
-            RenderSettings.fog = true;
-            loopExtent = 34f;
-            foreach (GameObject car in trafficObjects)
-            {
-                if (car != null) car.GetComponent<TrafficVehicle>()?.SetLoopExtent(loopExtent);
-            }
+            art.EnableVirtualSky(transform);
+            art.RefreshReflections();
         }
 
         private void OnDestroy()

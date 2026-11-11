@@ -14,12 +14,24 @@ namespace Crashout.Vehicle
 
         private Rigidbody body;
         private float loopExtent;
+        // Beyond this distance from the junction a car is inside an edge portal: it keeps its schedule
+        // but is hidden, weightless and cannot collide until it re-emerges.
+        private float visibleExtent;
+        private bool inTunnel;
+        private Renderer[] renderers;
         private BoxCollider box;
         private bool driveEnabled = true;
         private Vector3 travelDirection = Vector3.right;
+        // Along-road position this car was designed to hold at the moment of launch, and the
+        // temporary speed change that keeps it on that schedule while the player approaches.
+        private float designedAlong;
+        private float speedBias;
 
         public bool DriveEnabled => driveEnabled;
         public Rigidbody Body => body;
+        public float LaneSpeed => targetSpeed;
+        public float SpeedBias => speedBias;
+        public Vector3 TravelDirection => travelDirection;
 
         private void Awake()
         {
@@ -39,12 +51,63 @@ namespace Crashout.Vehicle
             laneCoordinate = lane;
             targetSpeed = speed;
             laneRunsAlongX = alongX;
+            designedAlong = alongX ? transform.position.x : transform.position.z;
+            speedBias = 0f;
             transform.rotation = Quaternion.LookRotation(travelDirection, Vector3.up);
+        }
+
+        private float TravelSign => Mathf.Sign(laneRunsAlongX ? travelDirection.x : travelDirection.z);
+
+        private float WrapProgress(float progress)
+        {
+            if (loopExtent <= 0f) return progress;
+            return Mathf.Repeat(progress + loopExtent, loopExtent * 2f) - loopExtent;
+        }
+
+        /// <summary>
+        /// Moves a parked car along its lane so its schedule runs <paramref name="shiftMetres"/> ahead of
+        /// (or, when negative, behind) the designed launch layout. Lanes loop, so the shift wraps.
+        /// </summary>
+        public void PlaceOnPhase(float shiftMetres)
+        {
+            if (body == null) body = GetComponent<Rigidbody>();
+            float sign = TravelSign;
+            float along = sign * WrapProgress(sign * designedAlong + shiftMetres);
+            Vector3 position = body.position;
+            if (laneRunsAlongX) position.x = along;
+            else position.z = along;
+            body.position = position;
+            transform.position = position;
+            speedBias = 0f;
+            UpdateTunnel();
+        }
+
+        /// <summary>
+        /// Gently speeds up or slows the car so it reaches its designed slot exactly when the player
+        /// arrives. Called every physics tick while the player is still out on the runway.
+        /// </summary>
+        public void SteerToPhase(float shiftMetres, float deltaTime)
+        {
+            if (!driveEnabled || body == null) return;
+            float sign = TravelSign;
+            float desired = sign * designedAlong + shiftMetres;
+            float current = sign * (laneRunsAlongX ? body.position.x : body.position.z);
+            float error = desired - current;
+            if (loopExtent > 0f) error = Mathf.Repeat(error + loopExtent, loopExtent * 2f) - loopExtent;
+            float wanted = Mathf.Clamp(error * 0.7f, -0.4f * targetSpeed, 0.6f * targetSpeed);
+            speedBias = Mathf.MoveTowards(speedBias, wanted, 5f * deltaTime);
+        }
+
+        /// <summary>Hands the car back to its natural lane speed.</summary>
+        public void RelaxPhase(float deltaTime)
+        {
+            speedBias = Mathf.MoveTowards(speedBias, 0f, 4f * deltaTime);
         }
 
         public void DisableDrive()
         {
             driveEnabled = false;
+            SetInTunnel(false);
         }
 
         private void OnEnable()
@@ -61,23 +124,55 @@ namespace Crashout.Vehicle
         /// Cars that leave the board re-enter at the far side so the junction never runs out of
         /// traffic, however late the player launches. Zero disables looping.
         /// </summary>
-        public void SetLoopExtent(float extent)
+        /// <param name="extent">Where the lane wraps, measured from the junction.</param>
+        /// <param name="visible">Where cars enter the edge portals and drop out of sight; defaults to <paramref name="extent"/>.</param>
+        public void SetLoopExtent(float extent, float visible = 0f)
         {
             loopExtent = extent;
+            visibleExtent = visible > 0f ? Mathf.Min(visible, extent) : extent;
+            UpdateTunnel();
         }
 
         public void ResetController()
         {
             driveEnabled = true;
+            speedBias = 0f;
             if (body == null) body = GetComponent<Rigidbody>();
             body.linearVelocity = Vector3.zero;
+            UpdateTunnel();
+        }
+
+        private void UpdateTunnel()
+        {
+            if (body == null || loopExtent <= 0f) return;
+            float along = laneRunsAlongX ? body.position.x : body.position.z;
+            SetInTunnel(driveEnabled && Mathf.Abs(along) > visibleExtent);
+        }
+
+        private void SetInTunnel(bool hidden)
+        {
+            if (hidden == inTunnel || body == null) return;
+            inTunnel = hidden;
+            if (renderers == null) renderers = GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer r in renderers)
+            {
+                if (r != null) r.enabled = !hidden;
+            }
+            body.useGravity = !hidden;
+            body.detectCollisions = !hidden;
+            if (hidden)
+            {
+                Vector3 v = body.linearVelocity;
+                body.linearVelocity = new Vector3(v.x, 0f, v.z);
+                body.angularVelocity = Vector3.zero;
+            }
         }
 
         /// <summary>Traffic is released already up to speed, on the player's launch.</summary>
         public void Launch()
         {
             if (body == null) body = GetComponent<Rigidbody>();
-            body.linearVelocity = travelDirection * targetSpeed;
+            body.linearVelocity = travelDirection * (targetSpeed + speedBias);
             body.WakeUp();
         }
 
@@ -92,11 +187,15 @@ namespace Crashout.Vehicle
                 return;
             }
 
-            if (loopExtent > 0f) WrapAround();
+            if (loopExtent > 0f)
+            {
+                WrapAround();
+                UpdateTunnel();
+            }
 
             Vector3 forward = transform.forward;
             float forwardSpeed = Vector3.Dot(body.linearVelocity, forward);
-            float speedError = targetSpeed - forwardSpeed;
+            float speedError = targetSpeed + speedBias - forwardSpeed;
             float force = Mathf.Clamp(speedError * body.mass * 1.8f, -body.mass * 3.6f, body.mass * 3.6f);
 
             // Drivers only give way to other moving traffic, never to the player or a wreck.
@@ -122,9 +221,12 @@ namespace Crashout.Vehicle
             float sign = Mathf.Sign(laneRunsAlongX ? travelDirection.x : travelDirection.z);
             if (along * sign <= loopExtent) return;
 
-            // Re-enter at the far edge, backing off until the spot is clear of other cars in this lane.
-            float entry = -sign * loopExtent;
-            for (int attempt = 0; attempt < 5; attempt++)
+            // Re-enter at the far edge keeping the overshoot, so a lane's spacing (and every car's
+            // schedule) survives the wrap. Only when the entry is in plain sight, with no portal to
+            // hide in, back off until the spot is clear of other cars in this lane.
+            float entry = along - sign * loopExtent * 2f;
+            bool entryHidden = visibleExtent < loopExtent - 0.5f;
+            for (int attempt = 0; attempt < 5 && !entryHidden; attempt++)
             {
                 bool clear = true;
                 foreach (TrafficVehicle other in All)
@@ -143,7 +245,7 @@ namespace Crashout.Vehicle
                 : new Vector3(laneCoordinate, body.position.y, entry);
             body.position = position;
             body.rotation = Quaternion.LookRotation(travelDirection, Vector3.up);
-            body.linearVelocity = travelDirection * targetSpeed;
+            body.linearVelocity = travelDirection * (targetSpeed + speedBias);
             body.angularVelocity = Vector3.zero;
         }
     }

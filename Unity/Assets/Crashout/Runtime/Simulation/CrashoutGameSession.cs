@@ -21,6 +21,15 @@ namespace Crashout.Simulation
         public const float LaunchZoneMin = 0.8f;
         public const float LaunchZoneMax = 0.95f;
         private const float CruiseSpeed = 20f;
+        private const float PerfectLaunchBoostSeconds = 1.3f;
+        private const float NominalLaunchSpeed = 5f;
+        /// <summary>
+        /// Seconds from launch to the junction centre on the original 22 m flat approach. The traffic
+        /// layouts in <see cref="CrashScenarios"/> were tuned for this, so traffic is phase-shifted by
+        /// the difference between it and the live estimate for the real (much longer) runway.
+        /// </summary>
+        public static readonly float DesignArrivalSeconds =
+            ApproachPlanner.SecondsToJunction(null, -22f, NominalLaunchSpeed, false, PerfectLaunchBoostSeconds);
 
         private readonly SessionStateMachine stateMachine = new SessionStateMachine();
         private readonly ScoreLedger scoreLedger = new ScoreLedger();
@@ -46,6 +55,14 @@ namespace Crashout.Simulation
         private int bestChain;
         private float readyStartedAt;
         private uint turnId = 1;
+        private RunwayProfile runway;
+        private float junctionEta;
+        private bool approachLocked;
+        private float launchedAt;
+        private float stalledSeconds;
+        private float flippedSeconds;
+        private float rawThrottle;
+        private bool rawBoost;
 
         public bool IsAuthority { get; private set; } = true;
         public uint HostTick => stateMachine.HostTick;
@@ -67,6 +84,12 @@ namespace Crashout.Simulation
         public float LastLaunchQuality { get; private set; }
         public uint TargetEntityId => targetEntityId;
         public CrashScenario Scenario => scenario;
+        public RunwayProfile Runway => runway;
+        /// <summary>Live estimate of seconds until the player reaches the junction centre.</summary>
+        public float JunctionEta => junctionEta;
+        /// <summary>True while traffic is still being timed to meet the player.</summary>
+        public bool ApproachLocked => approachLocked;
+        public float DistanceToJunction => player == null ? 0f : Mathf.Max(0f, ApproachPlanner.JunctionZ - player.transform.position.z);
         public CrashMedal Medal => scenario == null ? CrashMedal.None : scenario.MedalFor(Score);
         public float CrashElapsed => Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay
             ? Time.time - crashStartedAt
@@ -102,6 +125,7 @@ namespace Crashout.Simulation
         public void LoadScenario(CrashScenario newScenario, IEnumerable<DamageableVehicle> damageableVehicles, uint targetId)
         {
             scenario = newScenario;
+            runway = newScenario?.Runway;
             targetEntityId = targetId;
             SetVehicles(damageableVehicles);
             ResetTurn();
@@ -189,14 +213,20 @@ namespace Crashout.Simulation
             if (Phase == GamePhase.Driving)
             {
                 DriverInputCommand command = localInput.Sample(HostTick, turnId);
+                rawThrottle = command.Throttle;
+                rawBoost = command.Boost;
                 // The car accelerates itself once launched; the player steers, brakes and boosts.
                 float forwardSpeed = Vector3.Dot(player.Body.linearVelocity, player.transform.forward);
                 if (command.Brake < 0.1f && (forwardSpeed < CruiseSpeed || command.Boost)) command.Throttle = 1f;
                 player.StepAuthority(command);
+                UpdateApproach();
+                CheckForStall();
             }
-            else if (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay)
+            else
             {
-                ApplyAftertouch();
+                approachLocked = false;
+                foreach (TrafficVehicle traffic in trafficVehicles) traffic.RelaxPhase(Time.fixedDeltaTime);
+                if (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay) ApplyAftertouch();
             }
 
             if (Phase == GamePhase.Driving || Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay)
@@ -267,6 +297,10 @@ namespace Crashout.Simulation
             {
                 traffic.Launch();
             }
+            launchedAt = Time.time;
+            stalledSeconds = 0f;
+            flippedSeconds = 0f;
+            approachLocked = true;
 
             player.Body.linearVelocity = player.transform.forward * Mathf.Lerp(1f, 5f, quality);
             player.Body.WakeUp();
@@ -330,14 +364,18 @@ namespace Crashout.Simulation
             return hit;
         }
 
-        public void ReportVehicleCollision(DamageableVehicle vehicle, uint otherEntityId, float impulse, float relativeSpeed)
+        public void ReportVehicleCollision(DamageableVehicle vehicle, uint otherEntityId, float impulse, float relativeSpeed, Vector3 contactNormal = default)
         {
             if (!IsAuthority || Phase == GamePhase.Results || vehicle == null) return;
 
             DamageableVehicle other = FindVehicle(otherEntityId);
             bool playerParticipated = vehicle.IsPlayerVehicle || other?.IsPlayerVehicle == true;
             bool significant = impulse >= 1.8f && relativeSpeed >= 1.4f;
-            if (Phase == GamePhase.Driving && playerParticipated && significant)
+            // Scenery only ends the run on the board, and never for touching down on the road
+            // (a hard landing off a ramp or a sag). Out on the runway the barriers just scrape.
+            bool crashes = other != null
+                || (RunwayProfile.IsOnBoard(vehicle.transform.position) && Mathf.Abs(contactNormal.y) < 0.6f);
+            if (Phase == GamePhase.Driving && playerParticipated && significant && crashes)
             {
                 BeginCrash();
             }
@@ -432,8 +470,62 @@ namespace Crashout.Simulation
             turnId++;
             lastScoringImpactAt = Time.time;
             readyStartedAt = Time.unscaledTime;
+            stalledSeconds = 0f;
+            flippedSeconds = 0f;
+            approachLocked = false;
+            PlaceTrafficForApproach();
             stateMachine.ResetToReady();
             ScoreChanged?.Invoke(default);
+        }
+
+        /// <summary>
+        /// Parks traffic so that, if the player launches perfectly and lets the car drive itself,
+        /// every car reaches its designed slot at the moment the player reaches the junction.
+        /// </summary>
+        private void PlaceTrafficForApproach()
+        {
+            if (player == null) return;
+            junctionEta = ApproachPlanner.SecondsToJunction(runway, player.Body.position.z, NominalLaunchSpeed, false, PerfectLaunchBoostSeconds);
+            foreach (TrafficVehicle traffic in trafficVehicles)
+            {
+                traffic.PlaceOnPhase(traffic.LaneSpeed * (DesignArrivalSeconds - junctionEta));
+            }
+        }
+
+        /// <summary>
+        /// While the player is out on the runway, re-estimate their arrival from where they are, how
+        /// fast they are going and what they are holding, and nudge traffic to keep the convergence
+        /// on time. Hands traffic back to free driving just before the player reaches the board.
+        /// </summary>
+        private void UpdateApproach()
+        {
+            Rigidbody body = player.Body;
+            float along = Mathf.Max(0f, body.linearVelocity.z);
+            float boostSeconds = player.LaunchBoostRemaining + (rawBoost ? player.BoostFraction * ArcadeVehicleController.BoostSeconds : 0f);
+            junctionEta = ApproachPlanner.SecondsToJunction(runway, body.position.z, along, rawThrottle > 0.1f, boostSeconds);
+
+            if (approachLocked && (body.position.z > RunwayProfile.BoardEdgeZ - 4f || junctionEta < 1.2f))
+            {
+                approachLocked = false;
+            }
+            foreach (TrafficVehicle traffic in trafficVehicles)
+            {
+                if (approachLocked) traffic.SteerToPhase(traffic.LaneSpeed * (DesignArrivalSeconds - junctionEta), Time.fixedDeltaTime);
+                else traffic.RelaxPhase(Time.fixedDeltaTime);
+            }
+        }
+
+        /// <summary>A car that is stuck, upside down or has fallen off the world ends the run.</summary>
+        private void CheckForStall()
+        {
+            float dt = Time.fixedDeltaTime;
+            bool moving = player.SpeedMetresPerSecond > 0.7f;
+            stalledSeconds = Time.time - launchedAt > 2f && !moving ? stalledSeconds + dt : 0f;
+            flippedSeconds = player.transform.up.y < 0.3f ? flippedSeconds + dt : 0f;
+            if (stalledSeconds > 2.5f || flippedSeconds > 1.5f || player.Body.position.y < -25f)
+            {
+                BeginCrash();
+            }
         }
 
         public IReadOnlyList<EntitySnapshot> CaptureSnapshot()

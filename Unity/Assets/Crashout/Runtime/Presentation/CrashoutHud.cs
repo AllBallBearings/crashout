@@ -435,7 +435,22 @@ namespace Crashout.Presentation
             }
             else if (phase == GamePhase.ReadyCheck && session.Scenario != null)
             {
-                Shadowed(new Rect(f.X0, f.Y0 + (f.Landscape ? 0f : 70f), width, 22f), session.Scenario.Brief.ToUpperInvariant(), new GUIStyle(messageStyle) { fontSize = 14, normal = { textColor = new Color(0.7f, 0.95f, 1f) } });
+                float top = f.Y0 + (f.Landscape ? 0f : 70f);
+                Shadowed(new Rect(f.X0, top, width, 22f), session.Scenario.Brief.ToUpperInvariant(), new GUIStyle(messageStyle) { fontSize = 14, normal = { textColor = new Color(0.7f, 0.95f, 1f) } });
+                RunwayProfile runway = session.Runway;
+                if (runway != null && !string.IsNullOrEmpty(runway.Title))
+                {
+                    string approach = runway.Title + "  ·  " + Mathf.RoundToInt(-runway.StartZ) + " M TO THE JUNCTION";
+                    Shadowed(new Rect(f.X0, top + 20f, width, 18f), approach, new GUIStyle(messageStyle) { fontSize = 11, normal = { textColor = new Color(1f, 0.85f, 0.55f) } });
+                }
+            }
+            else if (phase == GamePhase.Driving && session.DistanceToJunction > 6f)
+            {
+                // Countdown to the junction while the player screams down the approach.
+                float metres = session.DistanceToJunction;
+                float pulse = metres < 40f ? 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 18f) : 1f;
+                Shadowed(new Rect(f.X0, f.Y0 + (f.Landscape ? 0f : 70f), width, 22f), Mathf.RoundToInt(metres) + " M",
+                    new GUIStyle(messageStyle) { fontSize = 16, normal = { textColor = new Color(1f, 0.82f * pulse, 0.4f * pulse) } });
             }
             else if (phase == GamePhase.Crash || phase == GamePhase.SettleDelay)
             {

@@ -33,6 +33,8 @@ namespace Crashout.Vehicle
 
         public void ResetBody()
         {
+            // A sleeping body never syncs its Transform, so a never-simulated car would keep rendering at its old pose.
+            transform.SetPositionAndRotation(initialPosition, initialRotation);
             body.position = initialPosition;
             body.rotation = initialRotation;
             body.linearVelocity = Vector3.zero;
