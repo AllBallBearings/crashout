@@ -15,6 +15,10 @@ Where Crashout stands after the Crash Mode, art and tabletop-AR work (PR #1), an
 | Tabletop AR (`ArTabletopMode`) | **Validated on an iPhone Air: placement works.** Tracking quality, long-session behaviour and frame rate are not measured. |
 | Touch controls (joystick, gas, brake, boost, Crashbreaker, launch) | Multi-touch via the Input System. Used on a device; feel reported good. Joystick radius and deadzone are first guesses. |
 | iOS build pipeline | Headless: `Editor/BuildTools.cs` produces the Xcode project, then `xcodebuild` and `devicectl` install and launch. Wireless install works once "Connect via network" is ticked in Xcode. |
+| City damage (`Destruction`) | Facades scar and shed masonry, windows blow out, awnings and AC units fall, and lamps, trees, hydrants, bollards, bins, cones, benches and the roadworks barrier are jointed physics props. Restored on reset. Covered by `DestructionTests`. **Prop count and window geometry not yet profiled on iPhone.** |
+| Post-impact control | Stability assist after a survivable knock (spin damping, countersteer, self-levelling, wall slide) in `ArcadeVehicleController`; aftertouch reworked (frozen camera frame, 2-axis stick, stronger in slow motion, refills per wreck) in `CrashoutGameSession.ApplyAftertouch`. Tuned by scripted runs only; **needs hands-on feel tuning**. |
+| Mix (`MasterBus`) | Low shelf, saturation and limiter on the listener; sub drops, metal groans, city-damage sounds, car alarms, sirens, blast deafness. **Judged by test only (finite, audible), not by ear.** |
+| HUD redesign | Condensed OS display face, damage plate with medal track, speed/boost cluster, junction countdown, Crashbreaker dial, results card, cinema bars, key hints on desktop. Still IMGUI. Checked from editor screenshots (`CaptureFrames.CaptureHud`); **not yet checked on a phone, portrait included**. |
 | Turn-based multiplayer | Not started. One player, one run. |
 | Shared table alignment, discovery, replication | Not started. Data boundaries exist (`PresentationSynchronizer`, `EntitySnapshot`) but nothing uses them yet. |
 
@@ -66,7 +70,10 @@ Do this by playing, not by reading. Numbers below are the first guesses and wher
 | Crashbreaker charge per wreck | 0.09 to 0.35, plus amount/160000 | `VehicleSpec.CrashbreakerCharge`, `CrashoutGameSession.OnScored` |
 | Crashbreaker blast | radius 6 to 17 m, force `mass*strength*15` | `CrashoutGameSession.TryCrashbreaker` / `Detonate` |
 | Impact time | 1.5 s at 0.3x | `CrashoutGameSession` constants |
-| Aftertouch | 3.6 s budget, 22 m/s2 push | `CrashoutGameSession.ApplyAftertouch` |
+| Aftertouch | 3.6 s budget (drains only while steering, +12% per new wreck), 21 to 30 m/s2 push, x1.9 in impact time | `CrashoutGameSession.ApplyAftertouch` |
+| Recovery assist | 1.25 s window after a knock; steering torque 2300 | `ArcadeVehicleController` (`RecoverySeconds`, `ApplyStability`) |
+| Prop strength | lamp 95 kN, hydrant 80 kN, bollard 230 kN, tree 320 kN (a hit above about 1.8 kN s still starts the crash) | `Configure(...)` calls in `CrashoutArt.City.cs` |
+| Facade damage | scar from 3.5 m/s, severity by speed x sqrt(mass) | `DamageableFacade.OnCollisionEnter` |
 | Boost | 3.2 s, 2.1x force, 1.45x top speed | `ArcadeVehicleController` |
 | Launch meter | 1.1 s sweep, green zone 0.80 to 0.95, perfect = +$2,500 and 1.3 s free boost | `CrashoutGameSession` constants |
 | Auto-acceleration after launch | cruises to 20 m/s, GAS and BOOST go faster | `CrashoutGameSession.FixedUpdate` |

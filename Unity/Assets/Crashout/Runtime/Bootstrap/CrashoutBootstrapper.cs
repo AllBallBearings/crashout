@@ -23,6 +23,7 @@ namespace Crashout.Bootstrap
         private Transform city;
         private Transform runwayWorld;
         private PhysicsMaterial rollingContact;
+        private Destruction destruction;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void InstallPrototype()
@@ -41,6 +42,8 @@ namespace Crashout.Bootstrap
 
             art = new CrashoutArt();
             bool useAr = ArTabletopMode.ShouldUseAr;
+            // Created before the city so buildings and street furniture can register for damage.
+            destruction = gameObject.AddComponent<Destruction>();
             art.ApplyAtmosphere(transform, useAr);
             city = art.BuildCity(transform, useAr);
             art.InstallReflections(transform);
@@ -59,7 +62,10 @@ namespace Crashout.Bootstrap
             cameraRig.Configure(session, player);
             hud.Configure(session, cameraRig);
             session.Configure(player, cameraRig, vehicles);
+            destruction.Configure(session);
+            fx.Watch(destruction);
             crashAudio.Configure(session);
+            crashAudio.Watch(destruction);
             session.ScenarioChangeRequested += ChangeScenario;
             LoadScenario(0);
 
@@ -182,6 +188,7 @@ namespace Crashout.Bootstrap
         // AR is unavailable here, so put the diorama on the virtual display floor under a virtual sky.
         private void UseVirtualWorld()
         {
+            destruction.Clear();
             if (city != null) Destroy(city.gameObject);
             city = art.BuildCity(transform, false);
             art.EnableVirtualSky(transform);

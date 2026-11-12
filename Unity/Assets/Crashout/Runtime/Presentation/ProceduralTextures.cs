@@ -193,7 +193,7 @@ namespace Crashout.Presentation
         /// <summary>Weathered asphalt: dark binder, light aggregate, tar seams and oil stains. Tiles every ~4 m.</summary>
         public static SurfaceSet Asphalt(int size = 512, int seed = 3)
         {
-            return Build("Asphalt", size, size, 6f, (float u, float v, out Color c, out float h, out float m, out float s) =>
+            return Build("Asphalt", size, size, 3.2f, (float u, float v, out Color c, out float h, out float m, out float s) =>
             {
                 AsphaltSample(u, v, seed, out c, out h, out s);
                 m = 0f;
@@ -205,18 +205,19 @@ namespace Crashout.Presentation
             float large = Fbm(u, v, 3, 4, seed);
             float grain = Value(u * 220f, v * 220f, 220, seed + 5);
             float stone = Value(u * 90f, v * 90f, 90, seed + 9);
-            float aggregate = SmoothStep(0.62f, 0.8f, stone) * 0.6f + SmoothStep(0.86f, 0.95f, grain) * 0.5f;
-            float tone = Mathf.Lerp(0.085f, 0.15f, large) + aggregate * 0.16f + (grain - 0.5f) * 0.04f;
+            float aggregate = SmoothStep(0.62f, 0.85f, stone) * 0.45f + SmoothStep(0.86f, 0.97f, grain) * 0.3f;
+            float tone = Mathf.Lerp(0.15f, 0.215f, large) + aggregate * 0.07f + (grain - 0.5f) * 0.025f;
             // Dark oil and tar patches.
             float stain = SmoothStep(0.62f, 0.78f, Fbm(u + 0.37f, v + 0.11f, 4, 3, seed + 21));
-            tone *= 1f - stain * 0.35f;
+            tone *= 1f - stain * 0.22f;
             // Hairline cracks along cell boundaries.
             float crackField = Fbm(u * 1.7f, v * 1.7f, 6, 2, seed + 44);
-            float crack = SmoothStep(0.03f, 0.0f, Mathf.Abs(crackField - 0.5f)) * SmoothStep(0.5f, 0.7f, large);
-            tone *= 1f - crack * 0.5f;
+            float crack = SmoothStep(0.012f, 0.0f, Mathf.Abs(crackField - 0.5f)) * SmoothStep(0.55f, 0.75f, large);
+            tone *= 1f - crack * 0.3f;
             c = new Color(tone * 1.0f, tone * 1.0f, tone * 1.05f, 1f);
-            h = aggregate * 0.6f + grain * 0.25f - crack * 0.8f + large * 0.2f;
-            s = Mathf.Clamp01(0.22f + stain * 0.35f - aggregate * 0.08f);
+            h = aggregate * 0.4f + grain * 0.12f - crack * 0.35f + large * 0.2f;
+            // Worn, slightly polished tarmac with glossier oil and tar patches.
+            s = Mathf.Clamp01(0.3f + stain * 0.38f - aggregate * 0.1f + (1f - large) * 0.08f);
         }
 
         /// <summary>
@@ -227,7 +228,7 @@ namespace Crashout.Presentation
         {
             const float roadWidth = 10f;
             const float tileLength = 14.4f;
-            return Build("Painted road", width, length, 5f, (float u, float v, out Color c, out float h, out float m, out float s) =>
+            return Build("Painted road", width, length, 3f, (float u, float v, out Color c, out float h, out float m, out float s) =>
             {
                 // Asphalt sampled at the same scale as the board road (about 4 m per tile).
                 float au = u * roadWidth / 4f;
@@ -314,6 +315,56 @@ namespace Crashout.Presentation
         /// Window glass is smooth and slightly metallic so it reflects the sky; lit windows glow.
         /// </summary>
         public static SurfaceSet Facade(bool brick, int seed, out Texture2D emission, int size = 512)
+        {
+            return Facade(brick, seed, out emission, size, true);
+        }
+
+        /// <summary>
+        /// A plain wall, 6 m per tile, for buildings whose windows are real geometry: weathered brick in
+        /// running bond, or painted render with water streaks and hairline cracks.
+        /// </summary>
+        public static SurfaceSet Wall(bool brick, int seed, int size = 512)
+        {
+            return Build(brick ? "Brick wall" : "Render wall", size, size, brick ? 2.6f : 2.5f, (float u, float v, out Color c, out float h, out float m, out float s) =>
+            {
+                float blotch = Fbm(u, v, 3, 4, seed);
+                float streak = Fbm(u * 6f, v * 0.6f, 6, 3, seed + 5);
+                float grime = SmoothStep(0.45f, 0.8f, streak) * 0.16f + (1f - blotch) * 0.08f;
+                m = 0f;
+                if (brick)
+                {
+                    float rows = v * 80f;
+                    int row = Mathf.FloorToInt(rows);
+                    float cols = u * 28f + (row % 2) * 0.5f;
+                    float rf = rows - row, cf = cols - Mathf.Floor(cols);
+                    float mortar = Mathf.Max(SmoothStep(0.16f, 0.04f, Mathf.Min(rf, 1f - rf)), SmoothStep(0.07f, 0.02f, Mathf.Min(cf, 1f - cf)));
+                    float tone = Hash(Wrap(Mathf.FloorToInt(cols), 28), row, seed + 3);
+                    float fire = Hash(Wrap(Mathf.FloorToInt(cols), 28), row, seed + 11);
+                    Color brickColour = Color.Lerp(new Color(0.29f, 0.165f, 0.135f), new Color(0.42f, 0.25f, 0.2f), tone);
+                    if (fire > 0.9f) brickColour = Color.Lerp(brickColour, new Color(0.2f, 0.13f, 0.12f), 0.7f);
+                    float face = Value(u * 300f, v * 300f, 300, seed + 7);
+                    brickColour = Mul(brickColour, 0.9f + face * 0.2f);
+                    c = Color.Lerp(brickColour, new Color(0.47f, 0.44f, 0.41f), mortar * 0.85f);
+                    c = Mul(c, 1f - grime);
+                    h = (1f - mortar) * 0.7f + face * 0.15f;
+                    s = 0.1f + (1f - mortar) * 0.06f;
+                }
+                else
+                {
+                    float tone = Mathf.Lerp(0.66f, 0.76f, blotch);
+                    float grain = Value(u * 256f, v * 256f, 256, seed + 2);
+                    float crackField = Fbm(u * 1.3f, v * 1.3f, 5, 2, seed + 31);
+                    float crack = SmoothStep(0.018f, 0f, Mathf.Abs(crackField - 0.5f)) * SmoothStep(0.55f, 0.75f, blotch);
+                    tone = tone * (1f - grime) + (grain - 0.5f) * 0.035f;
+                    tone *= 1f - crack * 0.35f;
+                    c = new Color(tone, tone * 0.975f, tone * 0.93f, 1f);
+                    h = blotch * 0.25f + grain * 0.2f - crack;
+                    s = 0.14f + grime * 0.2f;
+                }
+            });
+        }
+
+        private static SurfaceSet Facade(bool brick, int seed, out Texture2D emission, int size, bool windows)
         {
             var glow = new Color32[size * size];
             SurfaceSet set = Build(brick ? "Brick facade" : "Render facade", size, size, 7f, (float u, float v, out Color c, out float h, out float m, out float s) =>
@@ -467,19 +518,25 @@ namespace Crashout.Presentation
             });
         }
 
-        /// <summary>Leaf clusters for tree canopies: varied greens with dark gaps.</summary>
+        /// <summary>Leaf masses for tree canopies: overlapping leaf clumps in close greens with soft shade between.</summary>
         public static SurfaceSet Foliage(int size = 256, int seed = 91)
         {
-            return Build("Foliage", size, size, 10f, (float u, float v, out Color c, out float h, out float m, out float s) =>
+            return Build("Foliage", size, size, 4f, (float u, float v, out Color c, out float h, out float m, out float s) =>
             {
-                float leaf = Cells(u, v, 18, seed, out float id);
-                float body = SmoothStep(0.55f, 0.15f, leaf);
+                float clump = Cells(u, v, 7, seed, out float clumpId);
+                float leaf = Cells(u, v, 26, seed + 5, out float leafId);
+                float body = SmoothStep(0.75f, 0.2f, clump) * 0.6f + SmoothStep(0.7f, 0.25f, leaf) * 0.4f;
                 float variation = Fbm(u, v, 4, 3, seed + 3);
-                Color green = Color.Lerp(new Color(0.18f, 0.32f, 0.1f), new Color(0.38f, 0.5f, 0.16f), id * 0.7f + variation * 0.3f);
-                c = Color.Lerp(new Color(0.04f, 0.07f, 0.03f), green, body);
+                Color deep = new Color(0.085f, 0.15f, 0.06f);
+                Color mid = new Color(0.16f, 0.27f, 0.09f);
+                Color high = new Color(0.27f, 0.38f, 0.13f);
+                c = Color.Lerp(deep, mid, SmoothStep(0.1f, 0.6f, body));
+                c = Color.Lerp(c, high, SmoothStep(0.55f, 1f, body) * (0.4f + 0.6f * leafId) * (0.6f + 0.4f * variation));
+                c = Color.Lerp(c, new Color(0.3f, 0.3f, 0.1f), SmoothStep(0.88f, 1f, clumpId) * 0.25f);
+                c.a = 1f;
                 h = body;
                 m = 0f;
-                s = 0.25f * body;
+                s = 0.12f + 0.14f * body;
             });
         }
 
@@ -645,6 +702,204 @@ namespace Crashout.Presentation
                 float k = Mathf.Clamp01(facet * 0.6f + hot * 0.6f);
                 return new Color(k, k, k, 1f);
             });
+        }
+
+        // ------------------------------------------------------------------ windows and damage
+
+        /// <summary>
+        /// A lit room seen through a window, used as albedo and emission: a back wall washed by a
+        /// ceiling light, blinds or curtains, and the silhouettes of furniture. U and V are 0..1 per pane.
+        /// </summary>
+        public static Texture2D WindowInterior(int seed, bool office)
+        {
+            const int w = 64, h = 128;
+            return MakeTexture("Window interior", w, h, (u, v) =>
+            {
+                float wash = Mathf.Lerp(0.35f, 1f, SmoothStep(0.1f, 0.95f, v)) * (1f - 0.35f * Mathf.Abs(u - 0.5f) * 2f);
+                Color tone = office ? new Color(0.78f, 0.9f, 1f) : Color.Lerp(new Color(1f, 0.7f, 0.38f), new Color(1f, 0.84f, 0.58f), Hash(seed, 3, 1));
+                float k = wash;
+                if (office)
+                {
+                    // Ceiling strip lights and a row of desks and monitors.
+                    k *= 0.75f + 0.25f * SmoothStep(0.04f, 0f, Mathf.Abs(Mathf.Repeat(u * 3f, 1f) - 0.5f) - 0.1f) * SmoothStep(0.8f, 0.9f, v);
+                    if (v < 0.3f) k *= Hash(Mathf.FloorToInt(u * 5f), seed, 7) > 0.4f ? 0.35f : 0.7f;
+                }
+                else
+                {
+                    // Half-drawn blinds and a lamp or a plant on the sill.
+                    float blind = Hash(seed, 9, 2) * 0.5f + 0.25f;
+                    if (v > 1f - blind) k *= 0.55f + 0.2f * Mathf.Sin(v * 90f);
+                    float du = u - (0.25f + Hash(seed, 5, 3) * 0.5f);
+                    if (v < 0.32f && Mathf.Abs(du) < 0.12f + (0.32f - v) * 0.2f) k *= 0.3f;
+                }
+                // Glazing bars.
+                if (Mathf.Abs(u - 0.5f) < 0.02f || Mathf.Abs(v - 0.58f) < 0.012f) k *= 0.12f;
+                return new Color(tone.r * k, tone.g * k, tone.b * k, 1f);
+            });
+        }
+
+        /// <summary>
+        /// Laminated glass after a hard hit: frosted where it has crazed, a web of radial and ring
+        /// cracks around two or three impact points, and the odd hole punched right through.
+        /// </summary>
+        public static SurfaceSet CrazedGlass(int size = 256, int seed = 161)
+        {
+            return Build("Crazed glass", size, size, 5f, (float u, float v, out Color c, out float h, out float m, out float s) =>
+            {
+                float web = 0f, frost = 0f, hole = 0f;
+                for (int k = 0; k < 3; k++)
+                {
+                    float cx = 0.2f + 0.6f * Hash(k, 1, seed), cy = 0.2f + 0.6f * Hash(k, 2, seed);
+                    float dx = Mathf.Repeat(u - cx + 0.5f, 1f) - 0.5f, dy = Mathf.Repeat(v - cy + 0.5f, 1f) - 0.5f;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float angle = Mathf.Atan2(dy, dx) / (Mathf.PI * 2f) + 0.5f;
+                    float spokes = 14f + k * 5f;
+                    float spoke = Mathf.Abs(Mathf.Repeat(angle * spokes + (Value(d * 6f, k, 0, seed + 4) - 0.5f) * 0.8f, 1f) - 0.5f);
+                    float ring = Mathf.Abs(Mathf.Repeat(d * (16f - k * 3f) + Value(angle * spokes, k, 0, seed + 6) * 0.7f, 1f) - 0.5f);
+                    float reach = SmoothStep(0.55f, 0.05f, d);
+                    web = Mathf.Max(web, SmoothStep(0.05f + d * 0.08f, 0f, spoke) * reach);
+                    web = Mathf.Max(web, SmoothStep(0.06f, 0f, ring) * reach * SmoothStep(0.4f, 0.1f, d));
+                    frost = Mathf.Max(frost, SmoothStep(0.3f, 0.02f, d));
+                    hole = Mathf.Max(hole, SmoothStep(0.035f, 0.015f, d + (Value(angle * 9f, k, 0, seed + 8) - 0.5f) * 0.02f));
+                }
+                Color glass = Color.Lerp(new Color(0.03f, 0.045f, 0.055f), new Color(0.3f, 0.36f, 0.37f), frost * 0.75f);
+                c = Color.Lerp(glass, new Color(0.72f, 0.8f, 0.8f), web * 0.85f);
+                c = Color.Lerp(c, new Color(0.005f, 0.005f, 0.006f), hole);
+                c.a = 1f;
+                h = -web - hole * 2f;
+                m = 0.2f * (1f - frost);
+                s = Mathf.Lerp(0.93f, 0.4f, Mathf.Max(frost * 0.8f, web));
+            });
+        }
+
+        /// <summary>A blown-out window: a dark room behind a few jagged teeth of glass left in the frame.</summary>
+        public static Texture2D BrokenWindow(int seed = 151)
+        {
+            const int w = 128, h = 192;
+            return MakeTexture("Broken window", w, h, (u, v) =>
+            {
+                float edge = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
+                float angle = Mathf.Atan2(v - 0.5f, u - 0.5f);
+                float teeth = Mathf.Max(0f, Value(angle * 4f + 20f, 0.5f, 0, seed) - 0.35f) * 0.3f + Mathf.Max(0f, Value(angle * 11f + 9f, 1.5f, 0, seed + 3) - 0.5f) * 0.16f;
+                bool shard = edge < teeth;
+                float room = 0.012f + 0.02f * Fbm(u, v, 3, 3, seed + 6) * SmoothStep(0f, 0.5f, 1f - v);
+                Color c = new Color(room, room, room * 1.1f, 1f);
+                if (shard)
+                {
+                    float glint = Value(u * 30f + v * 12f, v * 30f - u * 9f, 0, seed + 9);
+                    c = Color.Lerp(new Color(0.07f, 0.1f, 0.12f), new Color(0.34f, 0.42f, 0.45f), SmoothStep(0.6f, 0.95f, glint));
+                }
+                if (edge < 0.02f) c = new Color(0.1f, 0.1f, 0.1f);
+                return c;
+            });
+        }
+
+        /// <summary>
+        /// An impact scar for a wall: a gouged, chipped crater exposing dark substrate, spalled edges and
+        /// cracks running outward. Alpha cuts the ragged outline. <paramref name="scorched"/> adds soot.
+        /// </summary>
+        public static void ImpactScar(int seed, out Texture2D albedo, out Texture2D normal, bool scorched = false)
+        {
+            const int size = 256;
+            var colours = new Color32[size * size];
+            var heights = new float[size * size];
+            Parallel.For(0, size, y =>
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f) / size, v = (y + 0.5f) / size;
+                    float dx = u - 0.5f, dy = v - 0.5f;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
+                    float angle = Mathf.Atan2(dy, dx);
+                    float ragged = Fbm(u, v, 5, 4, seed) - 0.5f;
+                    float lobes = Value(angle * 2.2f + 30f, 0.3f, 0, seed + 2) - 0.5f;
+                    float rim = 0.36f + lobes * 0.2f + ragged * 0.22f;
+                    float crater = SmoothStep(rim + 0.06f, rim - 0.1f, d);
+                    float spall = SmoothStep(rim + 0.2f, rim, d) * (1f - crater);
+                    // Cracks: thin lines along angular noise, fading with distance.
+                    float crackNoise = Value(angle * 3.2f + 50f, d * 1.6f, 0, seed + 4);
+                    float wander = (Value(d * 9f, angle * 2f, 0, seed + 8) - 0.5f) * 0.1f;
+                    float crack = SmoothStep(0.03f, 0.004f, Mathf.Abs(crackNoise - 0.5f + wander)) * SmoothStep(1f, 0.35f, d) * (1f - crater);
+                    float rubble = Value(u * 46f, v * 46f, 0, seed + 5);
+                    float soot = scorched ? SmoothStep(1f, 0.1f, d + ragged * 0.3f) : 0f;
+
+                    Color substrate = Color.Lerp(new Color(0.11f, 0.1f, 0.095f), new Color(0.3f, 0.27f, 0.24f), rubble * rubble);
+                    Color chipped = Color.Lerp(new Color(0.5f, 0.47f, 0.43f), new Color(0.7f, 0.67f, 0.62f), rubble);
+                    Color c = Color.Lerp(chipped, substrate, crater);
+                    c = Color.Lerp(c, new Color(0.03f, 0.03f, 0.03f), crack);
+                    c = Color.Lerp(c, new Color(0.015f, 0.014f, 0.013f), soot * 0.85f);
+                    float alpha = Mathf.Clamp01(crater + spall * (0.55f + 0.45f * rubble) + crack * 0.9f + soot * 0.8f);
+                    alpha *= SmoothStep(1f, 0.86f, d);
+                    c.a = alpha;
+                    colours[y * size + x] = c;
+                    heights[y * size + x] = -crater * (0.7f + rubble * 0.5f) - crack * 0.6f + spall * rubble * 0.3f;
+                }
+            });
+            var normals = new Color32[size * size];
+            Parallel.For(0, size, y =>
+            {
+                int yUp = Mathf.Min(size - 1, y + 1), yDown = Mathf.Max(0, y - 1);
+                for (int x = 0; x < size; x++)
+                {
+                    int xRight = Mathf.Min(size - 1, x + 1), xLeft = Mathf.Max(0, x - 1);
+                    float ddx = (heights[y * size + xRight] - heights[y * size + xLeft]) * 9f;
+                    float ddy = (heights[yUp * size + x] - heights[yDown * size + x]) * 9f;
+                    Vector3 n = new Vector3(-ddx, -ddy, 1f).normalized;
+                    normals[y * size + x] = new Color(n.x * 0.5f + 0.5f, n.y * 0.5f + 0.5f, n.z * 0.5f + 0.5f, 1f);
+                }
+            });
+            albedo = Make("Impact scar", size, size, colours, false, TextureWrapMode.Clamp);
+            normal = Make("Impact scar normal", size, size, normals, true, TextureWrapMode.Clamp);
+        }
+
+        /// <summary>Road wear decals: a long tar-sealed crack, a patched repair or an oil stain. Alpha blended.</summary>
+        public static Texture2D RoadWear(int kind, int seed)
+        {
+            const int size = 256;
+            return MakeTexture("Road wear", size, size, (u, v) =>
+            {
+                float edge = SmoothStep(0f, 0.12f, Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v)));
+                if (kind == 0)
+                {
+                    // Tar snake wandering along V.
+                    float centre = 0.5f + (Fbm(v, 0.3f, 3, 3, seed) - 0.5f) * 0.5f;
+                    float line = SmoothStep(0.03f, 0.012f, Mathf.Abs(u - centre));
+                    return new Color(0.025f, 0.025f, 0.028f, line * edge * 0.95f);
+                }
+                if (kind == 1)
+                {
+                    // Rectangular patch of newer, darker asphalt with a sealed edge.
+                    float inside = SmoothStep(0.06f, 0.1f, Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v)));
+                    float seal = inside * (1f - SmoothStep(0.1f, 0.14f, Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v))));
+                    float grain = Value(u * 120f, v * 120f, 0, seed);
+                    float tone = 0.07f + grain * 0.035f;
+                    return new Color(tone, tone, tone * 1.04f, inside * 0.62f + seal * 0.3f);
+                }
+                // Oil stain: dark, glossy blotch.
+                float dx = u - 0.5f, dy = v - 0.5f;
+                float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
+                float blot = SmoothStep(0.9f, 0.2f, d + (Fbm(u, v, 4, 4, seed) - 0.5f) * 0.9f);
+                return new Color(0.02f, 0.02f, 0.022f, blot * 0.6f);
+            });
+        }
+
+        private static Texture2D MakeTexture(string name, int width, int height, Func<float, float, Color> function)
+        {
+            var pixels = new Color32[width * height];
+            Parallel.For(0, height, y =>
+            {
+                for (int x = 0; x < width; x++) pixels[y * width + x] = function((x + 0.5f) / width, (y + 0.5f) / height);
+            });
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, true, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 4
+            };
+            texture.SetPixels32(pixels);
+            texture.Apply(true, true);
+            return texture;
         }
 
         // ------------------------------------------------------------------ particles and lens

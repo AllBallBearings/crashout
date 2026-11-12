@@ -21,7 +21,7 @@ namespace Crashout.Presentation
         private CrashoutCameraRig cameraRig;
         private CinematicFx cinematic;
 
-        private Material sparkMaterial, flashMaterial, fireMaterial, smokeMaterial, dustMaterial, shardMaterial, ringMaterial, skidMaterial, scorchMaterial;
+        private Material sparkMaterial, flashMaterial, fireMaterial, smokeMaterial, dustMaterial, shardMaterial, ringMaterial, skidMaterial, scorchMaterial, leafMaterial, waterMaterial;
         private readonly List<GameObject> debris = new List<GameObject>();
         private readonly List<GameObject> wreckEffects = new List<GameObject>();
         private readonly HashSet<uint> smoking = new HashSet<uint>();
@@ -50,8 +50,158 @@ namespace Crashout.Presentation
             BuildFlashLights();
         }
 
+        /// <summary>Answers damage to buildings and street furniture with dust, glass, sparks and water.</summary>
+        public void Watch(Destruction director)
+        {
+            if (destruction != null) destruction.Hit -= OnStructureHit;
+            destruction = director;
+            if (destruction != null) destruction.Hit += OnStructureHit;
+        }
+
+        private Destruction destruction;
+        private int glassBurstsThisFrame;
+        private int glassFrame = -1;
+
+        private void OnStructureHit(StructureHit hit)
+        {
+            EnsureMaterials();
+            Vector3 origin = hit.Position + hit.Normal * 0.2f;
+            switch (hit.Kind)
+            {
+                case StructureKind.Masonry:
+                {
+                    float k = Mathf.Lerp(0.5f, 1.6f, hit.Severity);
+                    ParticleSystem dust = Burst("Masonry dust", origin, Mathf.RoundToInt(14 * k), 1.6f, 3.4f, 0.6f, 3.2f * k, 2.2f * k,
+                        new Color(0.72f, 0.68f, 0.62f, 0.6f), new Color(0.55f, 0.5f, 0.45f, 0.45f), -0.02f, dustMaterial, false);
+                    Aim(dust, hit.Normal, 55f);
+                    FadeOut(dust, 0.65f);
+                    Grow(dust, 0.5f, 2.6f);
+                    Rotate(dust);
+                    dust.Play();
+                    ParticleSystem grit = Burst("Masonry grit", origin, Mathf.RoundToInt(26 * k), 0.8f, 1.8f, 2f, 8f * k, 0.09f,
+                        new Color(0.6f, 0.55f, 0.5f, 1f), new Color(0.35f, 0.3f, 0.27f, 1f), 1.4f, shardMaterial, false);
+                    Aim(grit, hit.Normal, 50f);
+                    Bounce(grit);
+                    grit.Play();
+                    if (cameraRig != null && hit.Severity > 0.35f) cameraRig.AddShake(hit.Severity * 0.35f);
+                    break;
+                }
+                case StructureKind.Glass:
+                {
+                    if (glassFrame != Time.frameCount) { glassFrame = Time.frameCount; glassBurstsThisFrame = 0; }
+                    if (glassBurstsThisFrame++ >= 5) break;
+                    ParticleSystem glass = Burst("Window glass", origin, Mathf.RoundToInt(Mathf.Lerp(18f, 46f, hit.Severity)), 1.6f, 3.2f, 1.5f, 6.5f, 0.1f,
+                        new Color(0.85f, 0.95f, 1f, 1f), new Color(0.55f, 0.68f, 0.74f, 1f), 1.1f, shardMaterial, false);
+                    Aim(glass, hit.Normal, 35f);
+                    Bounce(glass);
+                    Tumble(glass);
+                    glass.Play();
+                    break;
+                }
+                case StructureKind.Pole:
+                    Spawn("Pole sparks", hit.Position + Vector3.up * 0.3f, 40, 0.3f, 0.9f, 3f, 11f, 0.07f, new Color(0.8f, 0.9f, 1f, 1f), new Color(1f, 0.7f, 0.3f, 1f), 1.6f, sparkMaterial, true);
+                    Flash(hit.Position + Vector3.up, 9f, new Color(0.7f, 0.85f, 1f), 0.22f);
+                    break;
+                case StructureKind.Tree:
+                {
+                    ParticleSystem leaves = Burst("Leaves", hit.Position + Vector3.up * 3.2f, 60, 2f, 4.5f, 0.5f, 4f, 0.13f,
+                        new Color(0.3f, 0.5f, 0.15f, 1f), new Color(0.5f, 0.55f, 0.16f, 1f), 0.22f, leafMaterial, false);
+                    ParticleSystem.ShapeModule shape = leaves.shape;
+                    shape.radius = 1.4f;
+                    Tumble(leaves);
+                    leaves.Play();
+                    Spawn("Splinters", hit.Position + Vector3.up * 0.5f, 22, 0.6f, 1.4f, 2f, 7f, 0.08f, new Color(0.75f, 0.6f, 0.4f, 1f), new Color(0.5f, 0.38f, 0.25f, 1f), 1.4f, leafMaterial, false);
+                    break;
+                }
+                case StructureKind.Hydrant:
+                    Geyser(hit.Position);
+                    break;
+                default:
+                    Spawn("Prop dust", hit.Position + Vector3.up * 0.3f, 6, 0.6f, 1.4f, 0.5f, 2f, 1.1f, new Color(0.7f, 0.67f, 0.62f, 0.4f), new Color(0.55f, 0.52f, 0.48f, 0.3f), -0.02f, dustMaterial, false);
+                    break;
+            }
+        }
+
+        /// <summary>A sheared hydrant: a column of water, falling spray and a spreading mist until the turn resets.</summary>
+        private void Geyser(Vector3 position)
+        {
+            GameObject root = new GameObject("Hydrant geyser");
+            root.transform.position = position + Vector3.up * 0.1f;
+            if (destruction != null) destruction.Track(root);
+
+            ParticleSystem jet = MakeLooping("Jet", root.transform, Vector3.zero, waterMaterial, false);
+            jet.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            ParticleSystem.MainModule main = jet.main;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.1f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(10.5f, 13.5f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.25f, 0.6f);
+            main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.9f, 0.96f, 1f, 0.65f), new Color(0.75f, 0.86f, 0.95f, 0.45f));
+            main.gravityModifier = 1.15f;
+            main.maxParticles = 420;
+            ParticleSystem.EmissionModule emission = jet.emission;
+            emission.rateOverTime = 150f;
+            ParticleSystem.ShapeModule shape = jet.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 5f;
+            shape.radius = 0.07f;
+            ParticleSystemRenderer jetRenderer = jet.GetComponent<ParticleSystemRenderer>();
+            jetRenderer.renderMode = ParticleSystemRenderMode.Stretch;
+            jetRenderer.velocityScale = 0.05f;
+            jetRenderer.lengthScale = 1.6f;
+            Grow(jet, 0.7f, 2.2f);
+            FadeOut(jet, 0.7f);
+
+            ParticleSystem mist = MakeLooping("Mist", root.transform, new Vector3(0f, 2.5f, 0f), smokeMaterial, false);
+            ParticleSystem.MainModule mistMain = mist.main;
+            mistMain.startLifetime = new ParticleSystem.MinMaxCurve(2f, 3.5f);
+            mistMain.startSpeed = new ParticleSystem.MinMaxCurve(0.3f, 1.4f);
+            mistMain.startSize = new ParticleSystem.MinMaxCurve(1.6f, 3f);
+            mistMain.startColor = new ParticleSystem.MinMaxGradient(new Color(0.9f, 0.95f, 1f, 0.16f), new Color(0.8f, 0.88f, 0.95f, 0.1f));
+            mistMain.gravityModifier = 0.05f;
+            mistMain.maxParticles = 80;
+            ParticleSystem.EmissionModule mistEmission = mist.emission;
+            mistEmission.rateOverTime = 14f;
+            ParticleSystem.ShapeModule mistShape = mist.shape;
+            mistShape.radius = 1.6f;
+            Grow(mist, 0.6f, 2f);
+            FadeOut(mist, 0.5f);
+            Rotate(mist);
+        }
+
+        private static void Aim(ParticleSystem system, Vector3 direction, float angle)
+        {
+            ParticleSystem.ShapeModule shape = system.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = angle;
+            shape.radius = 0.35f;
+            system.transform.rotation = Quaternion.LookRotation(direction.sqrMagnitude > 0.01f ? direction : Vector3.up);
+        }
+
+        private static void Bounce(ParticleSystem system)
+        {
+            ParticleSystem.CollisionModule collision = system.collision;
+            collision.enabled = true;
+            collision.type = ParticleSystemCollisionType.World;
+            collision.mode = ParticleSystemCollisionMode.Collision3D;
+            collision.bounce = new ParticleSystem.MinMaxCurve(0.15f, 0.4f);
+            collision.dampen = 0.45f;
+            collision.lifetimeLoss = 0f;
+            collision.collidesWith = 1 << 0;
+            collision.quality = ParticleSystemCollisionQuality.Medium;
+        }
+
+        private static void Tumble(ParticleSystem system)
+        {
+            ParticleSystem.MainModule main = system.main;
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            ParticleSystem.RotationOverLifetimeModule spin = system.rotationOverLifetime;
+            spin.enabled = true;
+            spin.z = new ParticleSystem.MinMaxCurve(-7f, 7f);
+        }
+
         private void Unsubscribe()
         {
+            if (destruction != null) destruction.Hit -= OnStructureHit;
             if (session == null) return;
             session.ScoreChanged -= OnScore;
             session.Exploded -= OnExploded;
@@ -420,10 +570,11 @@ namespace Crashout.Presentation
                 flashLights.Add(light);
                 flashStarts.Add(-10f);
                 flashPeaks.Add(0f);
+                flashDurations.Add(0.3f);
             }
         }
 
-        private float flashDuration = 0.3f;
+        private readonly List<float> flashDurations = new List<float>();
 
         private void Flash(Vector3 position, float intensity, Color colour, float duration)
         {
@@ -440,7 +591,7 @@ namespace Crashout.Presentation
             light.enabled = true;
             flashStarts[slot] = Time.unscaledTime;
             flashPeaks[slot] = intensity;
-            flashDuration = duration;
+            flashDurations[slot] = duration;
         }
 
         private void UpdateFlashLights()
@@ -449,7 +600,7 @@ namespace Crashout.Presentation
             {
                 Light light = flashLights[i];
                 if (!light.enabled) continue;
-                float t = (Time.unscaledTime - flashStarts[i]) / Mathf.Max(0.05f, flashDuration);
+                float t = (Time.unscaledTime - flashStarts[i]) / Mathf.Max(0.05f, flashDurations[i]);
                 if (t >= 1f) { light.enabled = false; continue; }
                 light.intensity = flashPeaks[i] * (1f - t) * (1f - t);
             }
@@ -568,6 +719,8 @@ namespace Crashout.Presentation
             smokeMaterial = Particle("Smoke", ProceduralTextures.SmokePuff(), false, Color.white, true);
             dustMaterial = Particle("Dust", ProceduralTextures.SmokePuff(128, 23), false, Color.white, true);
             shardMaterial = Particle("Shard", ProceduralTextures.Shard(), true, new Color(2.2f, 2.4f, 2.6f, 1f), false);
+            leafMaterial = Particle("Leaf", ProceduralTextures.Shard(), false, Color.white, false);
+            waterMaterial = Particle("Water", ProceduralTextures.SoftDot(), false, Color.white, true);
             ringMaterial = Particle("Shock ring", ProceduralTextures.Ring(), true, new Color(3f, 2.2f, 1.4f, 1f), false);
             skidMaterial = new Material(Shader.Find("Sprites/Default")) { name = "Skid marks", mainTexture = ProceduralTextures.SkidMark() };
             skidMaterial.renderQueue = 2460;

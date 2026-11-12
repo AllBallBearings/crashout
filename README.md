@@ -36,6 +36,14 @@ The game follows Burnout Revenge's Crash Mode: drive into a busy junction and ca
 
 Scenarios live in `Runtime/Simulation/CrashScenario.cs` and vehicle classes in `Runtime/Vehicle/VehicleSpec.cs`.
 
+## Turn replays
+
+Every launch records the 3D world through the final settled frame. Choose **REPLAY** on the results card to review it in place: walk around the AR table, pause, drag the timeline in either direction, restart, or choose **0.25× / 0.5× / 1× / 2×**. The camera stays live, including while paused. In the Editor, `Space` toggles playback, Left/Right seek one second, `C` changes virtual camera, and `Esc` returns to results.
+
+Replays include vehicle and wheel movement, mesh damage, detached debris, damaged scenery, particles, lights and score/bonus popups. They are visual recordings held in memory until retry or the next junction; saving/export, replay audio and multiplayer distribution are not included. Reviewing a replay cannot rescore or rerun the crash.
+
+`ReplayTimelineTests` covers seeking and playback timing. `ReplayTests` in Play Mode covers a complete turn, destroyed/deformed geometry, all four speeds, pause/end/restart, score isolation, and restoring the live world. Device tracking and performance still need an iPhone check.
+
 ## Approach runways
 
 The board stays a single 52 m diorama: one city block on a plinth, built out to its edges, with tunnel portals where the roads leave it (looping traffic disappears inside them). Each junction adds a runway arm, a panhandle that reaches off the board's south edge, so the run-in builds tension before the pile-up. The arm is only as wide as the road and its verges, cut square at its sides and end to show the strata, and stands on the same plinth. Off the AR table the diorama sits on a dark display floor; nothing else extends past the board.

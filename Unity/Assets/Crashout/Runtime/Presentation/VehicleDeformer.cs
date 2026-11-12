@@ -93,7 +93,8 @@ namespace Crashout.Presentation
             averageNormal /= count;
             averagePoint /= count;
             bool scenery = collision.collider.GetComponentInParent<DamageableVehicle>() == null;
-            if (scenery && Mathf.Abs(averageNormal.y) > 0.7f && speed < 9f) return;
+            // (A fast landing off a crest is not a crash: bumpers stay on until something is actually hit.)
+            if (scenery && Mathf.Abs(averageNormal.y) > 0.7f && speed < 16f) return;
 
             lastDentAt = Time.time;
             float mass = body != null ? body.mass : 1400f;
@@ -168,6 +169,7 @@ namespace Crashout.Presentation
                 target.Mesh.SetVertices(target.Current);
                 target.Mesh.RecalculateNormals();
                 target.Mesh.RecalculateBounds();
+                ReplayMeshRevision.Changed(target.Filter);
             }
         }
 
@@ -208,6 +210,7 @@ namespace Crashout.Presentation
                 target.Mesh.SetVertices(target.Current);
                 target.Mesh.RecalculateNormals();
                 target.Mesh.RecalculateBounds();
+                ReplayMeshRevision.Changed(target.Filter);
             }
             foreach (Detachable part in detachables)
             {

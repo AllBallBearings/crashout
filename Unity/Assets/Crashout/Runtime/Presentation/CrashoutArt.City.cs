@@ -66,11 +66,16 @@ namespace Crashout.Presentation
             BuildStreetFurniture(root);
             BuildSignals(root);
 
-            // The orange construction barrier on the south-east corner (a collider the player can hit).
-            GameObject barrier = Slab(root, "Impact target", new Vector3(7f, 0.6f, -5.7f), new Vector3(3.8f, 1.2f, 0.35f), 0.08f, PlayerPaint, true);
-            Slab(root, "Barrier stripes", new Vector3(7f, 0.95f, -5.86f), new Vector3(3.6f, 0.3f, 0.04f), 0.01f, hazard, false);
-            Slab(root, "Barrier stripes", new Vector3(7f, 0.95f, -5.54f), new Vector3(3.6f, 0.3f, 0.04f), 0.01f, hazard, false);
-            barrier.isStatic = true;
+            BuildRoadWear(root);
+            BuildLooseProps(root);
+
+            // The orange construction barrier on the south-east corner: water-filled plastic, bolted
+            // down lightly, so a car smashes through it and sends it skidding.
+            GameObject barrier = Slab(root, "Impact target", new Vector3(7f, 0.7f, -5.7f), new Vector3(3.8f, 1.2f, 0.35f), 0.08f, PlayerPaint, true);
+            Slab(barrier.transform, "Barrier stripes", new Vector3(7f, 1.05f, -5.86f), new Vector3(3.6f, 0.3f, 0.04f), 0.01f, hazard, false);
+            Slab(barrier.transform, "Barrier stripes", new Vector3(7f, 1.05f, -5.54f), new Vector3(3.6f, 0.3f, 0.04f), 0.01f, hazard, false);
+            barrier.AddComponent<Rigidbody>();
+            barrier.AddComponent<BreakableProp>().Configure(StructureKind.Plastic, 210f, 60000f, new Vector3(0f, -0.3f, 0f));
             return root;
         }
 
@@ -141,6 +146,7 @@ namespace Crashout.Presentation
             float[] heights = { 14f, 19f, 12.5f, 16.5f };
             int index = 0;
             var shopWindows = new MeshKit();
+            var cornerDetail = new BatchedMeshes();
             for (int sz = -1; sz <= 1; sz += 2)
             {
                 for (int sx = -1; sx <= 1; sx += 2)
@@ -149,23 +155,141 @@ namespace Crashout.Presentation
                     Material facade = facades[(index * 3 + 1) % facades.Length];
                     Vector3 centre = new Vector3(sx * CornerBlockCentre, h * 0.5f, sz * CornerBlockCentre);
                     float s = CornerBlockSize;
-                    Slab(root, "Corner block " + (index + 1), centre, new Vector3(s, h, s), 0.05f, facade, true);
+                    Structure(Slab(root, "Corner block " + (index + 1), centre, new Vector3(s, h, s), 0.05f, facade, true), facade);
                     Building(root, centre, new Vector3(s, h, s), index * 7 + 3, true);
+                    Windows(root, cornerDetail, centre, new Vector3(s, h, s), index * 7 + 3, true, 4.1f, false);
 
                     // Shopfronts on the two faces that look onto the junction.
                     Vector3 faceX = new Vector3(sx * (CornerBlockCentre - s * 0.5f - 0.04f), 1.6f, sz * CornerBlockCentre);
                     Vector3 faceZ = new Vector3(sx * CornerBlockCentre, 1.6f, sz * (CornerBlockCentre - s * 0.5f - 0.04f));
                     shopWindows.Panel(faceX, new Vector3(-sx, 0f, 0f), Vector3.up, s - 1.2f, 2.6f);
                     shopWindows.Panel(faceZ, new Vector3(0f, 0f, -sz), Vector3.up, s - 1.2f, 2.6f);
+                    if (Destruction.Instance != null)
+                    {
+                        // Shopfront glazing shatters pane by pane.
+                        for (int pane = -1; pane <= 1; pane++)
+                        {
+                            float paneWidth = (s - 1.2f) / 3f;
+                            Destruction.Instance.RegisterWindow(faceX + new Vector3(-sx * 0.01f, 0f, pane * paneWidth), new Vector3(-sx, 0f, 0f), paneWidth, 2.6f);
+                            Destruction.Instance.RegisterWindow(faceZ + new Vector3(pane * paneWidth, 0f, -sz * 0.01f), new Vector3(0f, 0f, -sz), paneWidth, 2.6f);
+                        }
+                    }
                     Slab(root, "Shop frame", faceX + new Vector3(-sx * 0.02f, 1.45f, 0f), new Vector3(0.14f, 0.3f, s - 0.8f), 0.02f, darkMetal, false);
                     Slab(root, "Shop frame", faceZ + new Vector3(0f, 1.45f, -sz * 0.02f), new Vector3(s - 0.8f, 0.3f, 0.14f), 0.02f, darkMetal, false);
                     Material awning = index % 2 == 0 ? awningMaterial : signGreen;
-                    Slab(root, "Awning", faceX + new Vector3(sx * -0.7f, 1.85f, 0f), new Vector3(1.4f, 0.08f, s - 1f), 0.03f, awning, false, new Vector3(0f, 0f, 14f * sx));
-                    Slab(root, "Awning", faceZ + new Vector3(0f, 1.85f, sz * -0.7f), new Vector3(s - 1f, 0.08f, 1.4f), 0.03f, awning, false, new Vector3(-14f * sz, 0f, 0f));
+                    Loose(Slab(root, "Awning", faceX + new Vector3(sx * -0.7f, 1.85f, 0f), new Vector3(1.4f, 0.08f, s - 1f), 0.03f, awning, false, new Vector3(0f, 0f, 14f * sx)));
+                    Loose(Slab(root, "Awning", faceZ + new Vector3(0f, 1.85f, sz * -0.7f), new Vector3(s - 1f, 0.08f, 1.4f), 0.03f, awning, false, new Vector3(-14f * sz, 0f, 0f)));
                     index++;
                 }
             }
             MeshKit.Spawn(root, "Shop windows", shopWindows.ToMesh("Shop windows"), shopGlass, false);
+            cornerDetail.Emit(root, "Corner block detail");
+        }
+
+        private static void Structure(GameObject slab, Material wall)
+        {
+            BoxCollider box = slab.GetComponent<BoxCollider>();
+            if (box != null) slab.AddComponent<DamageableFacade>().Configure(box, wall);
+        }
+
+        private static GameObject Loose(GameObject part)
+        {
+            if (Destruction.Instance != null) Destruction.Instance.RegisterLoose(part);
+            return part;
+        }
+
+        /// <summary>
+        /// Gives a block real fenestration: for every bay on every floor a stone surround, a recessed
+        /// pane of reflective glass (some lit from inside), a sill and, on the street-facing blocks, a
+        /// lintel; string courses at each floor; the odd air-conditioning unit; and a glazed ground floor.
+        /// Every pane is registered so impacts and blasts can blow it out.
+        /// </summary>
+        private void Windows(Transform root, BatchedMeshes detail, Vector3 centre, Vector3 size, int seed, bool fine, float groundFloor, bool storefront)
+        {
+            const float floorHeight = 3f;
+            float bottom = centre.y - size.y * 0.5f;
+            int floors = Mathf.FloorToInt((size.y - groundFloor - 0.7f) / floorHeight);
+            if (floors < 1) return;
+            bool darkFrames = seed % 3 == 0;
+            Material frame = darkFrames ? darkMetal : windowFrame;
+
+            // A darker plinth and a band over the ground floor tie the block to the pavement.
+            detail.For(concreteDark).Box(new Vector3(centre.x, bottom + 0.3f, centre.z), new Vector3(size.x + 0.1f, 0.6f, size.z + 0.1f), Quaternion.identity);
+            detail.For(concrete).Box(new Vector3(centre.x, bottom + groundFloor - 0.25f, centre.z), new Vector3(size.x + 0.16f, 0.28f, size.z + 0.16f), Quaternion.identity);
+            if (fine)
+            {
+                for (int f = 1; f < floors; f++)
+                {
+                    detail.For(concrete).Box(new Vector3(centre.x, bottom + groundFloor + f * floorHeight - 0.08f, centre.z), new Vector3(size.x + 0.1f, 0.1f, size.z + 0.1f), Quaternion.identity);
+                }
+            }
+
+            for (int face = 0; face < 4; face++)
+            {
+                Vector3 normal = face == 0 ? Vector3.right : face == 1 ? Vector3.left : face == 2 ? Vector3.forward : Vector3.back;
+                Vector3 tangent = Vector3.Cross(Vector3.up, normal);
+                float faceWidth = face < 2 ? size.z : size.x;
+                float depth = (face < 2 ? size.x : size.z) * 0.5f;
+                int bays = Mathf.FloorToInt((faceWidth - 0.7f) / 1.8f);
+                if (bays < 1) continue;
+                float pitch = (faceWidth - 0.5f) / bays;
+                float paneWidth = Mathf.Min(1.1f, pitch - 0.62f);
+                const float paneHeight = 1.7f;
+                Quaternion facing = Quaternion.LookRotation(normal, Vector3.up);
+                Vector3 faceCentre = new Vector3(centre.x, bottom, centre.z) + normal * depth;
+
+                for (int f = 0; f < floors; f++)
+                {
+                    float y = groundFloor + f * floorHeight + 1.45f;
+                    for (int b = 0; b < bays; b++)
+                    {
+                        Vector3 at = faceCentre + tangent * ((b - (bays - 1) * 0.5f) * pitch) + Vector3.up * y;
+                        float pick = Hash(seed * 31 + face * 7 + b, f * 13 + 5);
+                        Material pane = pick < 0.2f ? windowLit[(seed + b + f) % 2] : pick < 0.27f ? windowLit[2] : windowGlass;
+                        detail.For(frame).Box(at + normal * 0.015f, new Vector3(paneWidth + 0.17f, paneHeight + 0.17f, 0.11f), facing);
+                        detail.For(pane, false).Panel(at + normal * 0.074f, normal, Vector3.up, paneWidth, paneHeight);
+                        detail.For(concrete).Box(at + normal * 0.09f + Vector3.down * (paneHeight * 0.5f + 0.12f), new Vector3(paneWidth + 0.34f, 0.08f, 0.26f), facing);
+                        if (fine)
+                        {
+                            detail.For(concrete).Box(at + normal * 0.05f + Vector3.up * (paneHeight * 0.5f + 0.16f), new Vector3(paneWidth + 0.3f, 0.14f, 0.16f), facing);
+                            if (pane == windowGlass)
+                            {
+                                // Glazing bars on the dark panes (the lit rooms carry theirs in the texture).
+                                detail.For(frame).Box(at + normal * 0.078f, new Vector3(0.035f, paneHeight, 0.02f), facing);
+                                detail.For(frame).Box(at + normal * 0.078f + Vector3.up * 0.14f, new Vector3(paneWidth, 0.035f, 0.02f), facing);
+                            }
+                        }
+                        if (Destruction.Instance != null) Destruction.Instance.RegisterWindow(at + normal * 0.074f, normal, paneWidth + 0.04f, paneHeight + 0.04f);
+
+                        if (fine && Hash(seed * 17 + b * 5 + face, f * 3 + 11) < 0.07f)
+                        {
+                            GameObject unit = Slab(root, "Air conditioner", at + normal * 0.3f + Vector3.down * (paneHeight * 0.5f - 0.2f), new Vector3(0.66f, 0.4f, 0.5f), 0.04f, steel, false, facing.eulerAngles);
+                            Loose(unit);
+                        }
+                    }
+                }
+
+                if (!storefront) continue;
+                // Ground floor: either one lit shopfront across the face, or dark glazing between piers.
+                float shopHeight = groundFloor - 1.25f;
+                bool shop = faceWidth > 4.5f && Hash(seed * 5 + face, 41) < 0.45f;
+                if (shop)
+                {
+                    Vector3 middle = faceCentre + Vector3.up * (0.62f + shopHeight * 0.5f);
+                    detail.For(darkMetal).Box(middle + normal * 0.012f, new Vector3(faceWidth - 0.7f, shopHeight + 0.14f, 0.1f), facing);
+                    detail.For(shopGlass, false).Panel(middle + normal * 0.07f, normal, Vector3.up, faceWidth - 0.84f, shopHeight);
+                }
+                for (int b = 0; b < bays; b++)
+                {
+                    Vector3 at = faceCentre + tangent * ((b - (bays - 1) * 0.5f) * pitch) + Vector3.up * (0.62f + shopHeight * 0.5f);
+                    if (!shop)
+                    {
+                        detail.For(darkMetal).Box(at + normal * 0.012f, new Vector3(pitch - 0.34f, shopHeight + 0.12f, 0.1f), facing);
+                        detail.For(windowGlass, false).Panel(at + normal * 0.07f, normal, Vector3.up, pitch - 0.46f, shopHeight);
+                    }
+                    if (Destruction.Instance != null) Destruction.Instance.RegisterWindow(at + normal * 0.07f, normal, shop ? (faceWidth - 0.84f) / bays : pitch - 0.44f, shopHeight + 0.02f);
+                }
+            }
         }
 
         /// <summary>Cornice, parapet and rooftop plant for a block whose footprint is <paramref name="size"/>.</summary>
@@ -243,8 +367,9 @@ namespace Crashout.Presentation
         {
             Vector3 centre = new Vector3(footprint.x, size.y * 0.5f, footprint.z);
             Material facade = glass ? glassTower : facades[seed % facades.Length];
-            Slab(root, glass ? "Glass tower" : "Building", centre, size, 0.05f, facade, true);
+            Structure(Slab(root, glass ? "Glass tower" : "Building", centre, size, 0.05f, facade, true), glass ? concreteDark : facade);
             if (glass) CurtainWall(detail, centre, size);
+            else Windows(root, detail, centre, size, seed, size.x < 8f, 3.9f, true);
             Building(root, centre, size, seed, true);
         }
 
@@ -285,10 +410,12 @@ namespace Crashout.Presentation
             for (int s = -1; s <= 1; s += 2)
             {
                 Vector3 pier = middle + side * (s * (PortalHalfWidth + pierWidth * 0.5f)) + Vector3.up * (height * 0.5f);
-                Slab(root, "Portal pier", pier, new Vector3(pierWidth, height, EdgeDepth), 0.05f, facade, true, euler);
+                Structure(Slab(root, "Portal pier", pier, new Vector3(pierWidth, height, EdgeDepth), 0.05f, facade, true, euler), facade);
+                Windows(root, detail, pier, Abs(turn * new Vector3(pierWidth, height, EdgeDepth)), seed + s, false, 3.9f, true);
             }
             float lintelHeight = height - PortalHeight;
-            Slab(root, "Portal lintel", middle + Vector3.up * (PortalHeight + lintelHeight * 0.5f), new Vector3(PortalHalfWidth * 2f, lintelHeight, EdgeDepth), 0.05f, facade, true, euler);
+            Structure(Slab(root, "Portal lintel", middle + Vector3.up * (PortalHeight + lintelHeight * 0.5f), new Vector3(PortalHalfWidth * 2f, lintelHeight, EdgeDepth), 0.05f, facade, true, euler), facade);
+            LintelWindows(detail, middle, outward, side, PortalHeight, height, seed);
             Vector3 worldSize = new Vector3(Mathf.Abs(outward.x) > 0.5f ? EdgeDepth : outer * 2f, height, Mathf.Abs(outward.x) > 0.5f ? outer * 2f : EdgeDepth);
             Building(root, middle + Vector3.up * (height * 0.5f), worldSize, seed, true);
 
@@ -312,6 +439,29 @@ namespace Crashout.Presentation
             }
         }
 
+        /// <summary>Windows over a portal opening, on the two faces that look along the road.</summary>
+        private void LintelWindows(BatchedMeshes detail, Vector3 middle, Vector3 outward, Vector3 side, float from, float height, int seed)
+        {
+            int floors = Mathf.FloorToInt((height - from - 1.2f) / 3f);
+            for (int face = -1; face <= 1; face += 2)
+            {
+                Vector3 normal = outward * face;
+                Quaternion facing = Quaternion.LookRotation(normal, Vector3.up);
+                for (int f = 0; f < floors; f++)
+                {
+                    for (int b = -2; b <= 2; b++)
+                    {
+                        Vector3 at = middle + normal * (EdgeDepth * 0.5f) + side * (b * 1.9f) + Vector3.up * (from + 1.9f + f * 3f);
+                        Material pane = Hash(seed + b * 3 + face, f * 7 + 1) < 0.24f ? windowLit[(b + 2 + f) % 2] : windowGlass;
+                        detail.For(windowFrame).Box(at + normal * 0.015f, new Vector3(1.27f, 1.87f, 0.11f), facing);
+                        detail.For(pane, false).Panel(at + normal * 0.074f, normal, Vector3.up, 1.1f, 1.7f);
+                        detail.For(concrete).Box(at + normal * 0.09f + Vector3.down * 0.97f, new Vector3(1.44f, 0.08f, 0.26f), facing);
+                        if (Destruction.Instance != null) Destruction.Instance.RegisterWindow(at + normal * 0.074f, normal, 1.14f, 1.74f);
+                    }
+                }
+            }
+        }
+
         /// <summary>Twin towers and a glazed skybridge framing the runway's arrival on the south edge.</summary>
         private void Gateway(Transform root, BatchedMeshes detail)
         {
@@ -323,7 +473,7 @@ namespace Crashout.Presentation
             }
             float span = (FrontageCentre - FrontageWidth * 0.5f) * 2f + 0.4f;
             Vector3 bridge = new Vector3(0f, 9.9f, -EdgeCentre);
-            Slab(root, "Skybridge", bridge, new Vector3(span, 3.4f, 3f), 0.05f, glassTower, true);
+            Structure(Slab(root, "Skybridge", bridge, new Vector3(span, 3.4f, 3f), 0.05f, glassTower, true), concreteDark);
             detail.For(concreteDark).Box(bridge + Vector3.down * 1.62f, new Vector3(span, 0.35f, 3.2f), Quaternion.identity);
             detail.For(concreteDark).Box(bridge + Vector3.up * 1.62f, new Vector3(span, 0.35f, 3.2f), Quaternion.identity);
             for (float x = -span * 0.5f + 1.2f; x < span * 0.5f; x += 1.2f)
@@ -363,21 +513,169 @@ namespace Crashout.Presentation
                 for (int b = 0; b < 3; b++)
                 {
                     Vector3 p = forward * (6.2f + b * 0.9f) - side * 5.45f;
-                    var bollard = new MeshKit();
-                    bollard.Cylinder(p + Vector3.up * 0.1f, p + Vector3.up * 0.95f, 0.11f, 0.1f, 10);
-                    MeshKit.Spawn(root, "Bollard", bollard.ToMesh("Bollard"), darkMetal);
+                    if (bollardMesh == null)
+                    {
+                        var bollard = new MeshKit();
+                        bollard.Cylinder(Vector3.up * 0.0f, Vector3.up * 0.82f, 0.11f, 0.1f, 12);
+                        bollard.Cylinder(Vector3.up * 0.82f, Vector3.up * 0.9f, 0.115f, 0.06f, 12);
+                        bollard.Cylinder(Vector3.up * 0.6f, Vector3.up * 0.66f, 0.114f, 0.114f, 12, false);
+                        bollardMesh = bollard.ToMesh("Bollard");
+                    }
+                    GameObject post = MeshKit.Spawn(root, "Bollard", bollardMesh, darkMetal);
+                    post.transform.position = p + Vector3.up * 0.1f;
+                    CapsuleCollider capsule = post.AddComponent<CapsuleCollider>();
+                    capsule.radius = 0.11f;
+                    capsule.height = 0.9f;
+                    capsule.center = new Vector3(0f, 0.45f, 0f);
+                    post.AddComponent<Rigidbody>();
+                    post.AddComponent<BreakableProp>().Configure(StructureKind.Pole, 55f, 230000f, new Vector3(0f, 0.4f, 0f));
                 }
             }
         }
 
+        private Mesh bollardMesh, hydrantMesh, coneMesh, coneBandMesh, binMesh, newsBoxMesh, newsWindowMesh, benchMesh, benchFrameMesh;
+        private Material hydrantPaint;
+
         private void Hydrant(Transform root, Vector3 position)
         {
-            Material red = signalRed;
-            var kit = new MeshKit();
-            kit.Cylinder(position + Vector3.up * 0.1f, position + Vector3.up * 0.75f, 0.13f, 0.12f, 12);
-            kit.Cylinder(position + Vector3.up * 0.75f, position + Vector3.up * 0.9f, 0.14f, 0.06f, 12);
-            kit.Cylinder(position + new Vector3(-0.2f, 0.5f, 0f), position + new Vector3(0.2f, 0.5f, 0f), 0.06f, 0.06f, 8);
-            MeshKit.Spawn(root, "Hydrant", kit.ToMesh("Hydrant"), Paint(new Color(0.7f, 0.08f, 0.05f), false, "Hydrant paint"));
+            if (hydrantMesh == null)
+            {
+                var kit = new MeshKit();
+                kit.Cylinder(Vector3.zero, Vector3.up * 0.08f, 0.17f, 0.17f, 12);
+                kit.Cylinder(Vector3.up * 0.08f, Vector3.up * 0.65f, 0.13f, 0.12f, 12);
+                kit.Cylinder(Vector3.up * 0.65f, Vector3.up * 0.7f, 0.15f, 0.15f, 12);
+                kit.Cylinder(Vector3.up * 0.7f, Vector3.up * 0.84f, 0.13f, 0.05f, 12);
+                kit.Cylinder(new Vector3(-0.2f, 0.45f, 0f), new Vector3(0.2f, 0.45f, 0f), 0.06f, 0.06f, 8);
+                kit.Cylinder(new Vector3(0f, 0.45f, 0f), new Vector3(0f, 0.45f, 0.2f), 0.075f, 0.075f, 8);
+                hydrantMesh = kit.ToMesh("Hydrant");
+            }
+            if (hydrantPaint == null) hydrantPaint = Paint(new Color(0.7f, 0.08f, 0.05f), false, "Hydrant paint");
+            GameObject hydrant = MeshKit.Spawn(root, "Hydrant", hydrantMesh, hydrantPaint);
+            hydrant.transform.position = position + Vector3.up * 0.1f;
+            CapsuleCollider capsule = hydrant.AddComponent<CapsuleCollider>();
+            capsule.radius = 0.15f;
+            capsule.height = 0.84f;
+            capsule.center = new Vector3(0f, 0.42f, 0f);
+            hydrant.AddComponent<Rigidbody>();
+            hydrant.AddComponent<BreakableProp>().Configure(StructureKind.Hydrant, 70f, 80000f, new Vector3(0f, 0.3f, 0f));
+        }
+
+        /// <summary>Tar seams, patched repairs and oil stains so the roads read as used.</summary>
+        private void BuildRoadWear(Transform root)
+        {
+            var tar = new MeshKit();
+            var patch = new MeshKit();
+            var oil = new MeshKit();
+            for (int i = 0; i < 26; i++)
+            {
+                bool alongX = i % 2 == 0;
+                float along = Mathf.Lerp(-24f, 24f, Hash(i, 71));
+                float across = Mathf.Lerp(-4.2f, 4.2f, Hash(i, 72));
+                // Lift the east-west road's decals over its slightly higher deck.
+                bool onCross = alongX || Mathf.Abs(along) < 5f;
+                Vector3 at = alongX ? new Vector3(along, 0f, across) : new Vector3(across, 0f, along);
+                at.y = onCross ? 0.066f : 0.056f;
+                Vector3 run = alongX ? Vector3.right : Vector3.forward;
+                int kind = i % 5 == 0 ? 1 : i % 3 == 0 ? 2 : 0;
+                if (kind == 0) tar.Panel(at, Vector3.up, run, Mathf.Lerp(0.5f, 1.1f, Hash(i, 73)), Mathf.Lerp(3f, 7.5f, Hash(i, 74)));
+                else if (kind == 1) patch.Panel(at, Vector3.up, run, Mathf.Lerp(1.4f, 2.4f, Hash(i, 75)), Mathf.Lerp(2f, 4.5f, Hash(i, 76)));
+                else oil.Panel(at, Vector3.up, run, Mathf.Lerp(0.8f, 1.8f, Hash(i, 77)), Mathf.Lerp(0.9f, 2.2f, Hash(i, 78)));
+            }
+            MeshKit.Spawn(root, "Tar seams", tar.ToMesh("Tar seams"), roadWearTar, false);
+            MeshKit.Spawn(root, "Road patches", patch.ToMesh("Road patches"), roadWearPatch, false);
+            MeshKit.Spawn(root, "Oil stains", oil.ToMesh("Oil stains"), roadWearOil, false);
+        }
+
+        /// <summary>Cones, litter bins, news boxes and benches: light, loose, and made to be sent flying.</summary>
+        private void BuildLooseProps(Transform root)
+        {
+            if (coneMesh == null)
+            {
+                var cone = new MeshKit();
+                cone.Box(new Vector3(0f, 0.015f, 0f), new Vector3(0.38f, 0.03f, 0.38f), Quaternion.identity);
+                cone.Cylinder(Vector3.up * 0.03f, Vector3.up * 0.72f, 0.14f, 0.03f, 14);
+                coneMesh = cone.ToMesh("Cone");
+                var band = new MeshKit();
+                band.Cylinder(Vector3.up * 0.36f, Vector3.up * 0.5f, 0.096f, 0.073f, 14, false);
+                coneBandMesh = band.ToMesh("Cone band");
+
+                var bin = new MeshKit();
+                bin.Cylinder(Vector3.zero, Vector3.up * 0.9f, 0.27f, 0.3f, 16);
+                bin.Cylinder(Vector3.up * 0.9f, Vector3.up * 0.98f, 0.33f, 0.31f, 16);
+                bin.Cylinder(Vector3.up * 0.98f, Vector3.up * 1.06f, 0.31f, 0.12f, 16);
+                binMesh = bin.ToMesh("Litter bin");
+
+                var news = new MeshKit();
+                news.Append(ProceduralMeshes.RoundedBox(new Vector3(0.5f, 0.75f, 0.42f), 0.04f, 2), Matrix4x4.Translate(new Vector3(0f, 0.78f, 0f)));
+                news.Box(new Vector3(0f, 0.2f, 0f), new Vector3(0.1f, 0.4f, 0.1f), Quaternion.identity);
+                news.Box(new Vector3(0f, 0.02f, 0f), new Vector3(0.42f, 0.04f, 0.36f), Quaternion.identity);
+                newsBoxMesh = news.ToMesh("News box");
+                var newsWindow = new MeshKit();
+                newsWindow.Panel(new Vector3(0f, 0.85f, 0.214f), Vector3.forward, Vector3.up, 0.38f, 0.4f);
+                newsWindowMesh = newsWindow.ToMesh("News box window");
+
+                var bench = new MeshKit();
+                for (int slat = 0; slat < 4; slat++) bench.Box(new Vector3(0f, 0.46f, -0.17f + slat * 0.115f), new Vector3(1.7f, 0.035f, 0.095f), Quaternion.identity);
+                for (int slat = 0; slat < 3; slat++) bench.Box(new Vector3(0f, 0.6f + slat * 0.13f, -0.25f - slat * 0.025f), new Vector3(1.7f, 0.1f, 0.03f), Quaternion.Euler(-10f, 0f, 0f));
+                benchMesh = bench.ToMesh("Bench slats");
+                var frame = new MeshKit();
+                for (int end = -1; end <= 1; end += 2)
+                {
+                    frame.Box(new Vector3(end * 0.75f, 0.22f, 0.18f), new Vector3(0.05f, 0.44f, 0.05f), Quaternion.identity);
+                    frame.Box(new Vector3(end * 0.75f, 0.44f, -0.27f), new Vector3(0.05f, 0.88f, 0.05f), Quaternion.Euler(-8f, 0f, 0f));
+                    frame.Box(new Vector3(end * 0.75f, 0.42f, -0.03f), new Vector3(0.05f, 0.04f, 0.5f), Quaternion.identity);
+                }
+                benchFrameMesh = frame.ToMesh("Bench frame");
+            }
+            if (hydrantPaint == null) hydrantPaint = Paint(new Color(0.7f, 0.08f, 0.05f), false, "Hydrant paint");
+
+            // Roadworks around the construction barrier.
+            // All on the pavement, clear of the traffic lanes, so the junction plays the same until something hits them.
+            Vector3[] cones = { new Vector3(5.45f, 0.1f, -5.45f), new Vector3(5.5f, 0.1f, -6.4f), new Vector3(9.3f, 0.1f, -5.45f), new Vector3(9.4f, 0.1f, -6.3f), new Vector3(7.1f, 0.1f, -6.6f), new Vector3(-5.5f, 0.1f, 11.4f), new Vector3(-5.5f, 0.1f, 13.2f) };
+            foreach (Vector3 at in cones)
+            {
+                GameObject cone = MeshKit.Spawn(root, "Cone", coneMesh, coneOrange);
+                cone.transform.position = at;
+                MeshKit.Spawn(cone.transform, "Band", coneBandMesh, whitePaint, false);
+                BoxCollider box = cone.AddComponent<BoxCollider>();
+                box.center = new Vector3(0f, 0.3f, 0f);
+                box.size = new Vector3(0.34f, 0.6f, 0.34f);
+                cone.AddComponent<Rigidbody>();
+                cone.AddComponent<BreakableProp>().Configure(StructureKind.Plastic, 4f, 0f, new Vector3(0f, 0.12f, 0f));
+            }
+
+            for (int arm = 0; arm < 4; arm++)
+            {
+                Vector3 forward = arm == 0 ? Vector3.forward : arm == 1 ? Vector3.back : arm == 2 ? Vector3.right : Vector3.left;
+                Vector3 side = Vector3.Cross(Vector3.up, forward);
+
+                GameObject bin = MeshKit.Spawn(root, "Litter bin", binMesh, binGreen);
+                bin.transform.position = forward * 13.6f + side * 6.1f + Vector3.up * 0.1f;
+                CapsuleCollider binCollider = bin.AddComponent<CapsuleCollider>();
+                binCollider.radius = 0.3f;
+                binCollider.height = 1.06f;
+                binCollider.center = new Vector3(0f, 0.53f, 0f);
+                bin.AddComponent<Rigidbody>();
+                bin.AddComponent<BreakableProp>().Configure(StructureKind.Plastic, 22f, 0f, new Vector3(0f, 0.35f, 0f));
+
+                GameObject news = MeshKit.Spawn(root, "News box", newsBoxMesh, arm % 2 == 0 ? newsBlue : hydrantPaint);
+                news.transform.SetPositionAndRotation(forward * 11.2f - side * 6.2f + Vector3.up * 0.1f, Quaternion.LookRotation(side, Vector3.up));
+                MeshKit.Spawn(news.transform, "Window", newsWindowMesh, windowGlass, false);
+                BoxCollider newsCollider = news.AddComponent<BoxCollider>();
+                newsCollider.center = new Vector3(0f, 0.58f, 0f);
+                newsCollider.size = new Vector3(0.5f, 1.15f, 0.42f);
+                news.AddComponent<Rigidbody>();
+                news.AddComponent<BreakableProp>().Configure(StructureKind.Plastic, 38f, 0f, new Vector3(0f, 0.3f, 0f));
+
+                GameObject bench = MeshKit.Spawn(root, "Bench", benchMesh, benchWood);
+                bench.transform.SetPositionAndRotation(forward * 17f - side * 6.6f + Vector3.up * 0.1f, Quaternion.LookRotation(side, Vector3.up));
+                MeshKit.Spawn(bench.transform, "Frame", benchFrameMesh, darkMetal);
+                BoxCollider benchCollider = bench.AddComponent<BoxCollider>();
+                benchCollider.center = new Vector3(0f, 0.44f, -0.05f);
+                benchCollider.size = new Vector3(1.7f, 0.88f, 0.52f);
+                bench.AddComponent<Rigidbody>();
+                bench.AddComponent<BreakableProp>().Configure(StructureKind.Loose, 65f, 0f, new Vector3(0f, 0.25f, 0f));
+            }
         }
 
         private void Lamp(Transform root, Vector3 position, Vector3 towardRoad)
@@ -409,7 +707,9 @@ namespace Crashout.Presentation
             CapsuleCollider collider = pole.AddComponent<CapsuleCollider>();
             collider.radius = 0.14f;
             collider.height = 5.4f;
-            collider.center = new Vector3(0f, 2.8f, 0f);
+            collider.center = new Vector3(0f, 2.9f, 0f);
+            pole.AddComponent<Rigidbody>();
+            pole.AddComponent<BreakableProp>().Configure(StructureKind.Pole, 150f, 95000f, new Vector3(0f, 1.6f, 0.15f), glow);
         }
 
         private void Tree(Transform root, Vector3 position, float random)
@@ -424,7 +724,9 @@ namespace Crashout.Presentation
             CapsuleCollider collider = tree.AddComponent<CapsuleCollider>();
             collider.radius = 0.2f;
             collider.height = 3f;
-            collider.center = new Vector3(0f, 1.5f, 0f);
+            collider.center = new Vector3(0f, 1.6f, 0f);
+            tree.AddComponent<Rigidbody>();
+            tree.AddComponent<BreakableProp>().Configure(StructureKind.Tree, 480f, 320000f, new Vector3(0f, 1.5f, 0f));
             // A tree pit grate.
             Decal(root, "Tree pit", position + Vector3.up * 0.105f, new Vector3(1.2f, 0.01f, 1.2f), darkMetal);
         }

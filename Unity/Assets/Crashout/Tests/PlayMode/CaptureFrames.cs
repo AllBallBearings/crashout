@@ -76,6 +76,7 @@ namespace Crashout.Tests
                 float deadline = Time.realtimeSinceStartup + 30f;
                 while (session.Phase != GamePhase.Results && Time.realtimeSinceStartup < deadline) yield return null;
                 yield return new WaitForSecondsRealtime(1f);
+                Debug.Log($"[Capture] {session.Scenario.Name}: score {session.Score}, wrecked {session.WreckedCount}, best chain {session.BestChain}, medal {session.Medal}");
                 yield return Capture(prefix + "-g-results.png");
                 yield return CaptureOverview(prefix + "-h-overview.png", session.Runway.FarZ);
             }
@@ -87,6 +88,89 @@ namespace Crashout.Tests
 #endif
                 InputSystem.RemoveDevice(keyboard);
             }
+        }
+
+        /// <summary>
+        /// HUD review helper: screenshots of the real game view (IMGUI included) at each phase. Needs a
+        /// visible editor, so it is skipped in batch mode. Runs only when CRASHOUT_HUD_DIR is set, e.g.
+        /// CRASHOUT_HUD_DIR=/tmp/hud Unity -runTests -testPlatform PlayMode -testFilter CaptureHud
+        /// </summary>
+        [UnityTest, Timeout(180000)]
+        public IEnumerator CaptureHud()
+        {
+            string directory = System.Environment.GetEnvironmentVariable("CRASHOUT_HUD_DIR");
+            if (string.IsNullOrEmpty(directory) || Application.isBatchMode)
+            {
+                Assert.Ignore("Set CRASHOUT_HUD_DIR and run with a visible editor to capture the HUD.");
+                yield break;
+            }
+            Directory.CreateDirectory(directory);
+            yield return null;
+            var session = Object.FindFirstObjectByType<CrashoutGameSession>();
+            Assert.That(session, Is.Not.Null);
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            var previousFocus = InputSystem.settings.backgroundBehavior;
+#if UNITY_EDITOR
+            var previousRouting = InputSystem.settings.editorInputBehaviorInPlayMode;
+#endif
+            try
+            {
+                InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+                InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
+                session.RequestScenarioChange((0 - session.Scenario.Index + CrashScenarios.Count) % CrashScenarios.Count);
+                yield return new WaitForSecondsRealtime(3.2f);
+                yield return Screenshot(Path.Combine(directory, "hud-a-ready.png"));
+
+                session.Launch(1f);
+                bool midShot = false;
+                for (int tick = 0; tick < 900 && session.Phase == GamePhase.Driving; tick++)
+                {
+                    InputState.Change(keyboard, new KeyboardState(Key.W, Key.LeftShift));
+                    keyboard.MakeCurrent();
+                    yield return new WaitForFixedUpdate();
+                    if (!midShot && session.Player.Body.position.z > session.Runway.StartZ * 0.45f)
+                    {
+                        midShot = true;
+                        yield return Screenshot(Path.Combine(directory, "hud-b-driving.png"));
+                    }
+                }
+                yield return new WaitForSecondsRealtime(0.7f);
+                yield return Screenshot(Path.Combine(directory, "hud-c-impact.png"));
+                // Steer the wreck so the aftertouch read-out shows.
+                for (int tick = 0; tick < 50; tick++)
+                {
+                    InputState.Change(keyboard, new KeyboardState(Key.A, Key.W));
+                    keyboard.MakeCurrent();
+                    yield return new WaitForFixedUpdate();
+                }
+                yield return Screenshot(Path.Combine(directory, "hud-d-aftertouch.png"));
+                InputState.Change(keyboard, new KeyboardState());
+                yield return new WaitForSecondsRealtime(1.2f);
+                yield return Screenshot(Path.Combine(directory, "hud-e-crashbreaker.png"));
+                session.TryCrashbreaker();
+                float deadline = Time.realtimeSinceStartup + 30f;
+                while (session.Phase != GamePhase.Results && Time.realtimeSinceStartup < deadline) yield return null;
+                yield return new WaitForSecondsRealtime(2.6f);
+                yield return Screenshot(Path.Combine(directory, "hud-f-results.png"));
+            }
+            finally
+            {
+                InputSystem.settings.backgroundBehavior = previousFocus;
+#if UNITY_EDITOR
+                InputSystem.settings.editorInputBehaviorInPlayMode = previousRouting;
+#endif
+                InputSystem.RemoveDevice(keyboard);
+            }
+        }
+
+        private static IEnumerator Screenshot(string path)
+        {
+            yield return new WaitForEndOfFrame();
+            Texture2D frame = ScreenCapture.CaptureScreenshotAsTexture();
+            File.WriteAllBytes(path, frame.EncodeToPNG());
+            Object.Destroy(frame);
         }
 
         /// <summary>The whole diorama, board and runway arm, from high off its south-east corner.</summary>

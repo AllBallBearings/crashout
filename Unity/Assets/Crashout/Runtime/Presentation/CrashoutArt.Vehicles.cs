@@ -339,8 +339,41 @@ namespace Crashout.Presentation
                     kit(trim).Box(new Vector3(side * (d.Width(seam) - 0.004f), g + (low + high) * 0.5f, seam), new Vector3(0.012f, high - low, 0.008f), Quaternion.identity);
                 }
 
+                // Bright trim along the waist rail, under the glass.
+                if (!d.PaintedUpper)
+                {
+                    float railFrom = d.RearBase + 0.06f, railTo = d.FrontBase - 0.05f;
+                    const int railSteps = 6;
+                    Vector3 last = Vector3.zero;
+                    for (int i = 0; i <= railSteps; i++)
+                    {
+                        float rz = Mathf.Lerp(railFrom, railTo, i / (float)railSteps);
+                        Vector3 point = GreenPoint(d, rz, side > 0 ? 0.015f : Mathf.PI - 0.015f, 0.012f);
+                        if (i > 0) kit(chrome).Cylinder(last, point, 0.011f, 0.011f, 5, false);
+                        last = point;
+                    }
+                }
+                // Arch liners: the dark inner wing seen behind each wheel.
+                foreach (float wz in wheelZ)
+                {
+                    kit(underbody).Box(new Vector3(side * (d.Width(wz) - 0.2f), g + d.WheelRadius + 0.1f, wz), new Vector3(0.05f, d.WheelRadius * 2f + 0.1f, archRadius * 2f + 0.06f), Quaternion.identity);
+                }
+
                 // Side skirt between the arches.
                 kit(trim).Box(new Vector3(side * (d.Width(0f) - 0.03f), g + d.Bottom(0f) + 0.035f, 0f), new Vector3(0.05f, 0.07f, 1.96f - archRadius * 2f), Quaternion.identity);
+            }
+
+            // Wipers parked at the base of the screen, and a stub aerial on the roof.
+            if (!d.PaintedUpper)
+            {
+                for (int w = -1; w <= 1; w += 2)
+                {
+                    Vector3 pivot = GreenPoint(d, d.FrontBase - 0.03f, Mathf.PI * (0.5f - w * 0.16f), 0.012f);
+                    Vector3 tip = GreenPoint(d, d.FrontBase - 0.1f, Mathf.PI * (0.5f + w * 0.08f), 0.012f);
+                    kit(trim).Cylinder(pivot, tip, 0.008f, 0.006f, 4, false);
+                }
+                Vector3 aerial = GreenPoint(d, d.RearTop + 0.1f, Mathf.PI * 0.5f, 0.012f);
+                kit(trim).Cylinder(aerial, aerial + new Vector3(0f, 0.16f, -0.08f), 0.008f, 0.004f, 5);
             }
 
             // Grille, bumpers (detachable), plates, exhaust.
