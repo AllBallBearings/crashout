@@ -21,6 +21,8 @@ namespace Crashout.Presentation
         private float orbitAngle;
         private float roll;
         private bool snapNextFrame;
+        private float orbitRate = 7f;
+        private float lastKnockSeen = -10f;
 
         public CameraMode Mode => mode;
         /// <summary>What the shot is about (the car, or the centre of the pile-up). Read by depth of field.</summary>
@@ -57,6 +59,7 @@ namespace Crashout.Presentation
 
         private void BeginReveal()
         {
+            lastKnockSeen = Time.time;
             revealStartedAt = Time.unscaledTime;
             snapNextFrame = true;
             orbitAngle = 0f;
@@ -83,8 +86,9 @@ namespace Crashout.Presentation
         {
             if (player == null || session == null) return;
 
-            Transform target = player.transform;
-            GamePhase phase = session.Phase;
+            bool replaying = session.Replay != null && session.Replay.IsActive;
+            Transform target = replaying ? session.Replay.Focus : player.transform;
+            GamePhase phase = replaying ? session.Replay.RecordedPhase : session.Phase;
             bool crashCamera = (phase == GamePhase.Crash || phase == GamePhase.SettleDelay || phase == GamePhase.Results)
                 && mode != CameraMode.Tabletop;
             Vector3 desiredPosition;
@@ -93,7 +97,14 @@ namespace Crashout.Presentation
 
             if (crashCamera)
             {
-                FramePileUp(target, out desiredPosition, out lookTarget);
+                if (replaying)
+                {
+                    // Virtual replay cameras follow recorded geometry; AR still uses its live tracked pose.
+                    orbitAngle += Time.unscaledDeltaTime * 7f;
+                    desiredPosition = target.position + Quaternion.Euler(0f, orbitAngle, 0f) * new Vector3(0f, 9f, -16f);
+                    lookTarget = target.position;
+                }
+                else FramePileUp(target, out desiredPosition, out lookTarget);
                 smoothTime = 0.35f;
             }
             else
@@ -150,7 +161,13 @@ namespace Crashout.Presentation
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
 
             float speed = player.SpeedMetresPerSecond;
-            bool driving = phase == GamePhase.Driving;
+            bool driving = !replaying && phase == GamePhase.Driving;
+            // A survivable knock (barrier, kerb, street furniture) jolts the camera in proportion.
+            if (player.LastKnockAt > lastKnockSeen)
+            {
+                lastKnockSeen = player.LastKnockAt;
+                if (driving) AddShake(Mathf.Clamp(player.LastKnockSpeed / 30f, 0.12f, 0.5f));
+            }
 
             // Lean into turns and slides a touch.
             float lateral = driving ? Vector3.Dot(player.Body.linearVelocity, target.right) : 0f;
@@ -209,19 +226,33 @@ namespace Crashout.Presentation
                 }
             }
 
-            orbitAngle += Time.unscaledDeltaTime * (session.IsImpactTime ? 16f : 7f);
+            // Hold the shot still while the wreck is being steered, so "left" stays left.
+            orbitRate = Mathf.MoveTowards(orbitRate, session.AftertouchActive ? 0f : session.IsImpactTime ? 16f : 7f, Time.unscaledDeltaTime * 40f);
+            orbitAngle += Time.unscaledDeltaTime * orbitRate;
             Vector3 away = Vector3.ProjectOnPlane(transform.position - focus, Vector3.up);
             if (away.sqrMagnitude < 1f) away = Vector3.back;
-            away = Quaternion.Euler(0f, Time.unscaledDeltaTime * (session.IsImpactTime ? 16f : 7f), 0f) * away.normalized;
+            away = Quaternion.Euler(0f, Time.unscaledDeltaTime * orbitRate, 0f) * away.normalized;
+            // While steering, bias the frame toward the player's wreck so its motion is readable.
+            if (session.AftertouchActive) focus = Vector3.Lerp(focus, target.position, 0.45f);
             float distance = Mathf.Clamp(7f + spread * 1.3f, 9f, 26f);
             float lift = Mathf.Clamp(3.5f + spread * 0.8f, 4.5f, 18f);
             desiredPosition = focus + away * distance + Vector3.up * lift;
             lookTarget = focus + Vector3.up * 0.5f;
 
             // Never sit inside a building: pull the camera in front of whatever blocks the view.
-            if (Physics.Linecast(lookTarget, desiredPosition, out RaycastHit blocker, 1 << 0, QueryTriggerInteraction.Ignore))
+            // A fat ray keeps a clear margin, so a parapet or cornice never fills half the frame.
+            Vector3 toCamera = desiredPosition - lookTarget;
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                desiredPosition = blocker.point + blocker.normal * 0.6f;
+                if (!Physics.SphereCast(lookTarget, 0.9f, toCamera.normalized, out RaycastHit blocker, toCamera.magnitude, 1 << 0, QueryTriggerInteraction.Ignore)) break;
+                // Blocked: try a slightly steeper angle before settling for a closer one.
+                if (attempt < 2)
+                {
+                    toCamera = Vector3.RotateTowards(toCamera, Vector3.up * toCamera.magnitude, 0.2f, 0f);
+                    desiredPosition = lookTarget + toCamera;
+                    continue;
+                }
+                desiredPosition = lookTarget + toCamera.normalized * Mathf.Max(3f, blocker.distance - 0.4f);
             }
         }
     }

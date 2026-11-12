@@ -23,17 +23,22 @@ namespace Crashout.Presentation
         public float Boost;
         public float Volume;
         public float Redline = 7400f;
+        /// <summary>Road speed in m/s; drives transmission whine.</summary>
+        public float RoadSpeed;
 
         private float sampleRate = 48000f;
         private float rpm = 900f;
         private float load;
         private float boost;
         private float volume;
-        private readonly float[] phases = new float[Harmonics + 3];
+        private readonly float[] phases = new float[Harmonics + 6];
         private readonly float[] harmonicGain = new float[Harmonics];
         private float cyclePhase;
         private float jitter = 1f;
         private float low, band;
+        private float lowRight, bandRight;
+        private float roadSpeed;
+        private float sub;
         private float intake;
         private float crackle;
         private float limiterPhase;
@@ -102,6 +107,7 @@ namespace Crashout.Presentation
                 load += (targetLoad - load) * paramSmooth;
                 boost += (targetBoost - boost) * paramSmooth;
                 volume += (targetVolume - volume) * paramSmooth;
+                roadSpeed += (RoadSpeed - roadSpeed) * paramSmooth;
 
                 float crankHz = rpm / 60f;
                 float fire = crankHz * 4f; // V8: four firing events per revolution.
@@ -125,6 +131,11 @@ namespace Crashout.Presentation
                 phases[Harmonics + 1] += fire * 1.5f / sampleRate;
                 if (phases[Harmonics + 1] >= 1f) phases[Harmonics + 1] -= 1f;
                 sum += Sin(phases[Harmonics]) * Mathf.Lerp(0.7f, 0.35f, load) + Sin(phases[Harmonics + 1]) * 0.25f;
+                // Quarter order: the uneven left/right bank pulses that make a V8 lope at idle.
+                phases[Harmonics + 3] += fire * 0.25f / sampleRate;
+                if (phases[Harmonics + 3] >= 1f) phases[Harmonics + 3] -= 1f;
+                float lope = Sin(phases[Harmonics + 3]);
+                sum += lope * Mathf.Lerp(0.45f, 0.08f, Mathf.Clamp01((rpm - 900f) / 2600f));
                 sum *= jitter;
 
                 float drive = 1.1f + load * 2.2f;
@@ -136,6 +147,15 @@ namespace Crashout.Presentation
                 float high = x - low - 0.9f * band;
                 band += cutoff * high;
                 float exhaust = low * 0.9f + band * 0.35f;
+                // The second bank through a slightly different pipe: the right channel's own voice.
+                float cutoffRight = Mathf.Min(0.45f, cutoff * 1.17f);
+                lowRight += cutoffRight * bandRight;
+                float highRight = x * (1f + lope * 0.12f) - lowRight - 0.8f * bandRight;
+                bandRight += cutoffRight * highRight;
+                float exhaustRight = lowRight * 0.9f + bandRight * 0.4f;
+                // Chest: a tight sub under the firing note that tracks load.
+                sub += 0.004f * (Sin(phases[Harmonics]) - sub);
+                float chest = Sin(phases[Harmonics]) * (0.22f + 0.3f * load);
 
                 // Induction roar.
                 intake += 0.25f * (Noise() - intake);
@@ -145,6 +165,12 @@ namespace Crashout.Presentation
                 phases[Harmonics + 2] += (1200f + boost * 3800f + rpm * 0.35f) / sampleRate;
                 if (phases[Harmonics + 2] >= 1f) phases[Harmonics + 2] -= 1f;
                 float whine = Sin(phases[Harmonics + 2]) * boost * 0.07f;
+                // Straight-cut transmission whine rising with road speed.
+                phases[Harmonics + 4] += (220f + roadSpeed * 46f) / sampleRate;
+                if (phases[Harmonics + 4] >= 1f) phases[Harmonics + 4] -= 1f;
+                phases[Harmonics + 5] += (220f + roadSpeed * 46f) * 1.5f / sampleRate;
+                if (phases[Harmonics + 5] >= 1f) phases[Harmonics + 5] -= 1f;
+                float gearWhine = (Sin(phases[Harmonics + 4]) + 0.4f * Sin(phases[Harmonics + 5])) * Mathf.Clamp01(roadSpeed / 45f) * (0.018f + 0.022f * load);
 
                 // Overrun pops and crackle when lifting off at high revs.
                 if (load < 0.12f && rpm > 3200f && Noise() > 0.9994f) crackle = 0.9f + Noise() * 0.3f;
@@ -160,11 +186,19 @@ namespace Crashout.Presentation
                     limiter = limiterPhase < 0.5f ? 1f : 0.35f;
                 }
 
-                float sample = (exhaust * 0.9f + induction + whine + pop * 0.6f) * limiter * volume;
-                for (int c = 0; c < channels; c++)
+                float shared = induction + whine + gearWhine + pop * 0.6f + chest;
+                float left = (exhaust * 0.9f + shared) * limiter * volume;
+                float right = (exhaustRight * 0.9f + shared) * limiter * volume;
+                if (channels >= 2)
                 {
                     // The carrier is 1.0, so we replace rather than modulate it.
-                    data[frame + c] = sample;
+                    data[frame] = left * 0.85f + right * 0.15f;
+                    data[frame + 1] = right * 0.85f + left * 0.15f;
+                    for (int c = 2; c < channels; c++) data[frame + c] = (left + right) * 0.35f;
+                }
+                else
+                {
+                    data[frame] = (left + right) * 0.5f;
                 }
             }
         }

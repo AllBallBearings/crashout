@@ -63,6 +63,9 @@ namespace Crashout.Simulation
         private float flippedSeconds;
         private float rawThrottle;
         private bool rawBoost;
+        private Vector3 aftertouchRight = Vector3.right;
+        private Vector3 aftertouchForward = Vector3.forward;
+        private bool aftertouchFrameHeld;
 
         public bool IsAuthority { get; private set; } = true;
         public uint HostTick => stateMachine.HostTick;
@@ -75,6 +78,11 @@ namespace Crashout.Simulation
         public int CrashbreakersUsed => crashbreakersUsed;
         public float CrashbreakerCharge => crashbreakerCharge;
         public float AftertouchFraction => Mathf.Clamp01(aftertouchRemaining / AftertouchSeconds);
+        /// <summary>The aftertouch wish being applied this tick (screen space), or zero.</summary>
+        public Vector2 AftertouchInput { get; private set; }
+        public bool AftertouchActive => AftertouchInput.sqrMagnitude > 0.01f;
+        /// <summary>World direction the wreck is being pushed, for the HUD arrow and effects.</summary>
+        public Vector3 AftertouchWorldDirection => aftertouchRight * AftertouchInput.x + aftertouchForward * AftertouchInput.y;
         public bool IsImpactTime => Phase == GamePhase.Crash && Time.unscaledTime < impactTimeUntil;
         public bool CanCrashbreak => (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay) && crashbreakerCharge >= MinimumCrashbreakerCharge;
         public bool TargetDown => targetDown;
@@ -97,6 +105,7 @@ namespace Crashout.Simulation
         public float TimeSinceLastScore => Time.time - lastScoringImpactAt;
         public ArcadeVehicleController Player => player;
         public LocalDriverInput LocalInput => localInput;
+        public TurnReplay Replay { get; private set; }
         public IReadOnlyList<DamageableVehicle> Vehicles => vehicles;
 
         public event Action<ScoreEvent> ScoreChanged;
@@ -116,6 +125,8 @@ namespace Crashout.Simulation
             playerVehicle = player.GetComponent<DamageableVehicle>();
             cameraRig = rig;
             SetVehicles(damageableVehicles);
+            Replay = gameObject.AddComponent<TurnReplay>();
+            Replay.Configure(this);
             stateMachine.PhaseChanged += HandlePhaseChanged;
             readyStartedAt = Time.unscaledTime;
             stateMachine.StartReady();
@@ -133,6 +144,7 @@ namespace Crashout.Simulation
 
         public void RequestScenarioChange(int delta)
         {
+            Replay?.Clear();
             ScenarioChangeRequested?.Invoke(delta);
         }
 
@@ -160,7 +172,18 @@ namespace Crashout.Simulation
         private void Update()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && keyboard.cKey.wasPressedThisFrame)
+            if (keyboard != null && Replay != null && Replay.IsActive)
+            {
+                if (keyboard.spaceKey.wasPressedThisFrame) Replay.TogglePlayback();
+                if (keyboard.escapeKey.wasPressedThisFrame) Replay.Close();
+                if (keyboard.leftArrowKey.wasPressedThisFrame) Replay.Seek(Replay.Position - 1f);
+                if (keyboard.rightArrowKey.wasPressedThisFrame) Replay.Seek(Replay.Position + 1f);
+                if (keyboard.cKey.wasPressedThisFrame && cameraRig != null) cameraRig.CycleMode();
+                if (keyboard.rKey.wasPressedThisFrame) ResetTurn();
+                if (keyboard.nKey.wasPressedThisFrame) RequestScenarioChange(1);
+                return;
+            }
+            if (keyboard != null && keyboard.cKey.wasPressedThisFrame && cameraRig != null)
             {
                 cameraRig.CycleMode();
             }
@@ -170,7 +193,13 @@ namespace Crashout.Simulation
             }
             if (keyboard != null && (keyboard.spaceKey.wasPressedThisFrame || keyboard.fKey.wasPressedThisFrame))
             {
-                if (!TryLaunch()) TryCrashbreaker();
+                if (Phase == GamePhase.Results) ResetTurn();
+                else if (!TryLaunch()) TryCrashbreaker();
+            }
+            if (keyboard != null && (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame))
+            {
+                if (Phase == GamePhase.Results) ResetTurn();
+                else TryLaunch();
             }
             if (keyboard != null && (keyboard.wKey.wasPressedThisFrame || keyboard.upArrowKey.wasPressedThisFrame))
             {
@@ -207,7 +236,7 @@ namespace Crashout.Simulation
 
         private void FixedUpdate()
         {
-            if (!IsAuthority || player == null) return;
+            if (!IsAuthority || player == null || (Replay != null && Replay.IsActive)) return;
             stateMachine.Tick();
 
             if (Phase == GamePhase.Driving)
@@ -227,6 +256,7 @@ namespace Crashout.Simulation
                 approachLocked = false;
                 foreach (TrafficVehicle traffic in trafficVehicles) traffic.RelaxPhase(Time.fixedDeltaTime);
                 if (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay) ApplyAftertouch();
+                else AftertouchInput = Vector2.zero;
             }
 
             if (Phase == GamePhase.Driving || Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay)
@@ -237,6 +267,11 @@ namespace Crashout.Simulation
                 }
             }
 
+            if (Phase == GamePhase.Driving || Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay)
+            {
+                ContainOnBoard();
+            }
+
             if (Phase == GamePhase.Crash || Phase == GamePhase.SettleDelay)
             {
                 EvaluateTurnResolution();
@@ -244,26 +279,90 @@ namespace Crashout.Simulation
         }
 
         /// <summary>
-        /// After impact the wreck is a passive body that the player can still nudge,
-        /// relative to the camera, for a short budget of time.
+        /// Nothing leaves the board through a portal. Wrecks that slide into the dark at the far end
+        /// of a tunnel are turned back, and a player who drives clean through the junction ends the
+        /// run there instead of dropping off the edge of the world. Looping traffic is untouched.
+        /// </summary>
+        private void ContainOnBoard()
+        {
+            const float limit = RunwayProfile.BoardHalfExtent - 1.6f;
+            Rigidbody body = player.Body;
+            if (Phase == GamePhase.Driving && (body.position.z > limit || Mathf.Abs(body.position.x) > limit) && RunwayProfile.IsOnBoard(new Vector3(0f, 0f, body.position.z)))
+            {
+                BeginCrash();
+            }
+            if (Phase != GamePhase.Driving) Contain(body, limit);
+            foreach (TrafficVehicle traffic in trafficVehicles)
+            {
+                if (traffic != null && !traffic.DriveEnabled) Contain(traffic.Body, limit);
+            }
+        }
+
+        private static void Contain(Rigidbody body, float limit)
+        {
+            Vector3 position = body.position;
+            Vector3 velocity = body.linearVelocity;
+            bool turned = false;
+            if (position.x > limit && velocity.x > 0f) { velocity.x *= -0.3f; turned = true; }
+            else if (position.x < -limit && velocity.x < 0f) { velocity.x *= -0.3f; turned = true; }
+            if (position.z > limit && velocity.z > 0f) { velocity.z *= -0.3f; turned = true; }
+            if (!turned) return;
+            body.linearVelocity = velocity;
+            body.angularVelocity *= 0.6f;
+        }
+
+        /// <summary>
+        /// After impact the wreck is a passive body that the player can still steer, relative to the
+        /// camera, for a budget of time. The frame of reference is frozen while the stick is held (the
+        /// camera stops orbiting too), the push is stronger in slow motion so it is felt when it
+        /// matters, and the wreck turns to face where it is being sent.
         /// </summary>
         private void ApplyAftertouch()
         {
-            if (aftertouchRemaining <= 0f || player == null) return;
+            if (player == null) return;
             DriverInputCommand command = localInput.Sample(HostTick, turnId);
-            float steer = command.Steering;
-            float push = command.Throttle - command.Brake;
-            float input = Mathf.Clamp01(Mathf.Sqrt(steer * steer + push * push));
-            aftertouchRemaining -= Time.fixedDeltaTime * (input > 0.1f ? 1f : 0.2f);
-            if (input < 0.05f) return;
+            Vector2 wish2 = localInput.AftertouchVector(command);
+            float input = wish2.magnitude;
+            if (aftertouchRemaining <= 0f || input < 0.12f)
+            {
+                AftertouchInput = Vector2.zero;
+                aftertouchFrameHeld = false;
+                return;
+            }
 
-            Transform view = Camera.main != null ? Camera.main.transform : transform;
-            Vector3 right = Vector3.ProjectOnPlane(view.right, Vector3.up).normalized;
-            Vector3 forward = Vector3.ProjectOnPlane(view.forward, Vector3.up).normalized;
+            if (!aftertouchFrameHeld)
+            {
+                Transform view = Camera.main != null ? Camera.main.transform : transform;
+                aftertouchRight = Vector3.ProjectOnPlane(view.right, Vector3.up).normalized;
+                aftertouchForward = Vector3.ProjectOnPlane(view.forward, Vector3.up);
+                if (aftertouchForward.sqrMagnitude < 0.01f) aftertouchForward = Vector3.ProjectOnPlane(view.up, Vector3.up);
+                aftertouchForward.Normalize();
+                aftertouchFrameHeld = true;
+            }
+            AftertouchInput = wish2;
+            aftertouchRemaining -= Time.fixedDeltaTime * input;
+
             Rigidbody body = player.Body;
-            Vector3 wish = right * steer + forward * push;
-            body.AddForce(wish * body.mass * 22f, ForceMode.Force);
-            body.AddTorque(Vector3.Cross(Vector3.up, wish) * body.mass * 1.5f, ForceMode.Force);
+            Vector3 wish = aftertouchRight * wish2.x + aftertouchForward * wish2.y;
+            // Slow motion shrinks every force's effect per real second; give some of it back.
+            float slowBoost = IsImpactTime ? 1.9f : 1f;
+            // A sliding wreck resists less than a tumbling one, and a stopped one needs a real shove.
+            float speed = body.linearVelocity.magnitude;
+            float shove = Mathf.Lerp(30f, 21f, Mathf.Clamp01(speed / 12f));
+            body.AddForce(wish * (shove * slowBoost), ForceMode.Acceleration);
+            // Bend the existing motion toward the wish without bleeding its speed.
+            Vector3 flat = Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up);
+            if (flat.sqrMagnitude > 9f)
+            {
+                Vector3 bent = Vector3.RotateTowards(flat, wish * flat.magnitude, 1.1f * slowBoost * Time.fixedDeltaTime * input, 0f);
+                body.linearVelocity = new Vector3(bent.x, body.linearVelocity.y, bent.z);
+            }
+            // Airborne wrecks stay up a touch longer while steered, so a flying car can be placed.
+            if (!Physics.Raycast(body.worldCenterOfMass, Vector3.down, 1.1f, 1 << 0, QueryTriggerInteraction.Ignore))
+            {
+                body.AddForce(Vector3.up * (3.2f * input), ForceMode.Acceleration);
+            }
+            body.AddTorque(Vector3.Cross(Vector3.up, wish) * (1.6f * slowBoost), ForceMode.Acceleration);
         }
 
         public static float LaunchQualityAt(float meter)
@@ -408,6 +507,8 @@ namespace Crashout.Simulation
                 + (firstWreck ? VehicleSpec.For(scoreTarget.Class).CrashbreakerCharge : 0f));
             ScoreChanged?.Invoke(scoreEvent);
             scoreTarget.GetComponent<TrafficVehicle>()?.DisableDrive();
+            // Every new wreck buys a little more steering time, so a growing pile-up stays playable.
+            if (firstWreck) aftertouchRemaining = Mathf.Min(AftertouchSeconds, aftertouchRemaining + AftertouchSeconds * 0.12f);
 
             if (scenario != null && !targetDown && scoreTarget.EntityId == targetEntityId)
             {
@@ -444,6 +545,7 @@ namespace Crashout.Simulation
 
         public void ResetTurn()
         {
+            Replay?.Clear();
             foreach (ResettableBody resettable in resettableBodies)
             {
                 resettable.ResetBody();
@@ -464,6 +566,8 @@ namespace Crashout.Simulation
             crashbreakerCharge = 0f;
             crashbreakersUsed = 0;
             aftertouchRemaining = 0f;
+            AftertouchInput = Vector2.zero;
+            aftertouchFrameHeld = false;
             bestChain = 0;
             targetDown = false;
             impactTimeUntil = 0f;

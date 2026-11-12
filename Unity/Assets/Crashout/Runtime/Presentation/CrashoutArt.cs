@@ -47,6 +47,11 @@ namespace Crashout.Presentation
         private readonly Material[] facades;
         private readonly Material glassTower;
         private readonly Material shopGlass;
+        private readonly Material windowGlass;
+        private readonly Material[] windowLit;
+        private readonly Material windowFrame;
+        private readonly Material roadWearTar, roadWearPatch, roadWearOil;
+        private readonly Material coneOrange, binGreen, newsBlue, benchWood;
         private readonly Material awningMaterial;
         private readonly Material rock;
         private readonly Material bark;
@@ -113,7 +118,7 @@ namespace Crashout.Presentation
             concrete = Surface("Concrete", concreteSet, 4f, new Color(1f, 0.98f, 0.95f), 1f, 0.8f);
             concreteDark = Surface("Concrete dark", concreteSet, 4f, new Color(0.62f, 0.62f, 0.62f), 1f, 0.8f);
             ground = Surface("City ground", pavingSet, 3f, new Color(0.62f, 0.6f, 0.58f), 1f, 0.6f);
-            displayFloor = Lit("Display floor", new Color(0.075f, 0.08f, 0.085f), 0f, 0.55f);
+            displayFloor = Lit("Display floor", new Color(0.27f, 0.265f, 0.26f), 0f, 0.42f);
             strata = Surface("Diorama strata", ProceduralTextures.Strata(), 6f, Color.white, 0.6f, 1f);
             rock = Surface("Rock", rockSet, 8f, Color.white, 1f, 1.2f);
             bark = Surface("Bark", rockSet, 1.5f, new Color(0.55f, 0.4f, 0.3f), 0.6f, 1.4f);
@@ -130,13 +135,29 @@ namespace Crashout.Presentation
             for (int i = 0; i < facades.Length; i++)
             {
                 bool brick = i % 2 == 0;
-                ProceduralTextures.SurfaceSet set = ProceduralTextures.Facade(brick, 200 + i * 17, out Texture2D emission);
-                Color tint = brick ? Color.Lerp(Color.white, new Color(0.85f, 0.8f, 0.78f), i * 0.2f)
-                    : new[] { new Color(0.95f, 0.9f, 0.82f), new Color(0.82f, 0.86f, 0.9f), new Color(0.92f, 0.82f, 0.74f) }[i / 2 % 3];
-                facades[i] = Surface("Facade " + i, set, 1f, tint, 1f, 1f);
-                facades[i].SetTextureScale("_BaseMap", new Vector2(1f / 7.2f, 1f / 12f));
-                Emissive(facades[i], new Color(1f, 0.78f, 0.5f) * 1.1f, emission);
+                ProceduralTextures.SurfaceSet set = ProceduralTextures.Wall(brick, 200 + i * 17);
+                Color tint = brick ? new[] { Color.white, new Color(0.86f, 0.8f, 0.76f), new Color(1.08f, 0.9f, 0.82f) }[i / 2 % 3]
+                    : new[] { new Color(0.97f, 0.93f, 0.85f), new Color(0.82f, 0.86f, 0.9f), new Color(0.93f, 0.84f, 0.76f) }[i / 2 % 3];
+                facades[i] = Surface("Facade " + i, set, 6f, tint, 1f, brick ? 0.8f : 0.7f);
             }
+            // Real windows: reflective panes, and rooms that are lit behind some of them.
+            windowGlass = Lit("Window glass", new Color(0.035f, 0.05f, 0.065f), 0.55f, 0.94f);
+            windowLit = new Material[3];
+            for (int i = 0; i < windowLit.Length; i++)
+            {
+                Texture2D room = ProceduralTextures.WindowInterior(40 + i * 9, i == 2);
+                windowLit[i] = Lit("Lit window " + i, new Color(0.5f, 0.5f, 0.5f), 0.1f, 0.9f);
+                windowLit[i].SetTexture("_BaseMap", room);
+                Emissive(windowLit[i], (i == 2 ? new Color(0.8f, 0.92f, 1f) : new Color(1f, 0.82f, 0.6f)) * 1.35f, room);
+            }
+            windowFrame = Lit("Window frame", new Color(0.78f, 0.76f, 0.72f), 0f, 0.35f);
+            roadWearTar = DecalMaterial("Tar seam", ProceduralTextures.RoadWear(0, 3), Color.white, null, 0.55f);
+            roadWearPatch = DecalMaterial("Road patch", ProceduralTextures.RoadWear(1, 5), Color.white, null, 0.25f);
+            roadWearOil = DecalMaterial("Oil stain", ProceduralTextures.RoadWear(2, 7), Color.white, null, 0.8f);
+            coneOrange = Lit("Cone", new Color(0.95f, 0.3f, 0.04f), 0f, 0.35f);
+            binGreen = Lit("Litter bin", new Color(0.06f, 0.16f, 0.1f), 0.3f, 0.45f);
+            newsBlue = Lit("News box", new Color(0.06f, 0.2f, 0.5f), 0.2f, 0.5f);
+            benchWood = Surface("Bench wood", rockSet, 0.8f, new Color(0.62f, 0.42f, 0.26f), 0.5f, 0.6f);
             glassTower = Lit("Curtain wall", new Color(0.12f, 0.17f, 0.22f), 0.85f, 0.94f);
             shopGlass = Lit("Shop glass", Color.white, 0.2f, 0.95f);
             shopGlass.SetTexture("_BaseMap", ProceduralTextures.Shopfront(7, out Texture2D shopGlow));
@@ -154,9 +175,7 @@ namespace Crashout.Presentation
             Emissive(signGreen, new Color(0.02f, 0.06f, 0.03f));
 
             glass = Lit("Car glass", new Color(0.015f, 0.022f, 0.03f), 0.3f, 0.97f);
-            shatteredGlass = Lit("Shattered glass", new Color(0.32f, 0.36f, 0.38f), 0.15f, 0.55f);
-            Normal(shatteredGlass, ProceduralTextures.Rock(128, 5).Normal, 2f);
-            shatteredGlass.SetTextureScale("_BaseMap", new Vector2(3f, 3f));
+            shatteredGlass = Surface("Shattered glass", ProceduralTextures.CrazedGlass(), 1.3f, Color.white, 1f, 1.2f);
             alloy = Lit("Alloy", new Color(0.78f, 0.79f, 0.81f), 1f, 0.78f);
             chrome = Lit("Chrome", new Color(0.92f, 0.92f, 0.93f), 1f, 0.94f);
             trim = Lit("Trim", new Color(0.025f, 0.025f, 0.028f), 0f, 0.42f);
@@ -246,24 +265,24 @@ namespace Crashout.Presentation
             Light sun = sunObject.AddComponent<Light>();
             sun.type = LightType.Directional;
             sun.color = new Color(1f, 0.84f, 0.66f);
-            sun.intensity = 2.9f;
+            sun.intensity = 2.55f;
             sun.shadows = LightShadows.Soft;
-            sun.shadowStrength = 0.85f;
+            sun.shadowStrength = 0.7f;
             sun.shadowBias = 0.02f;
             sun.shadowNormalBias = 0.35f;
             // Low, raking light from the south-west lights the runways from the side and throws long shadows.
-            sunObject.transform.rotation = Quaternion.Euler(34f, 62f, 0f);
+            sunObject.transform.rotation = Quaternion.Euler(42f, 58f, 0f);
             RenderSettings.sun = sun;
             Sun = sun;
 
             RenderSettings.ambientMode = AmbientMode.Skybox;
-            RenderSettings.ambientIntensity = 1.35f;
+            RenderSettings.ambientIntensity = 1.7f;
             RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
             RenderSettings.reflectionIntensity = 1f;
             RenderSettings.fog = !tabletop;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
             RenderSettings.fogColor = new Color(0.74f, 0.7f, 0.66f);
-            RenderSettings.fogDensity = 0.0052f;
+            RenderSettings.fogDensity = 0.0044f;
             DynamicGI.UpdateEnvironment();
 
             if (!tabletop) BuildCloudDome(parent);
@@ -370,23 +389,23 @@ namespace Crashout.Presentation
 
             Bloom bloom = profile.Add<Bloom>(true);
             bloom.threshold.Override(1.1f);
-            bloom.intensity.Override(0.55f);
+            bloom.intensity.Override(0.42f);
             bloom.scatter.Override(0.72f);
             bloom.tint.Override(new Color(1f, 0.93f, 0.86f));
             bloom.highQualityFiltering.Override(!tabletop);
             if (!tabletop)
             {
                 bloom.dirtTexture.Override(ProceduralTextures.LensDirt());
-                bloom.dirtIntensity.Override(2.2f);
+                bloom.dirtIntensity.Override(1.2f);
             }
 
             Tonemapping tonemapping = profile.Add<Tonemapping>(true);
             tonemapping.mode.Override(TonemappingMode.ACES);
 
             ColorAdjustments adjustments = profile.Add<ColorAdjustments>(true);
-            adjustments.postExposure.Override(0.35f);
-            adjustments.contrast.Override(14f);
-            adjustments.saturation.Override(6f);
+            adjustments.postExposure.Override(0.28f);
+            adjustments.contrast.Override(5f);
+            adjustments.saturation.Override(-2f);
 
             WhiteBalance whiteBalance = profile.Add<WhiteBalance>(true);
             whiteBalance.temperature.Override(6f);
@@ -394,29 +413,29 @@ namespace Crashout.Presentation
 
             // Blockbuster split: cool shadows, warm highlights.
             ShadowsMidtonesHighlights smh = profile.Add<ShadowsMidtonesHighlights>(true);
-            smh.shadows.Override(new Vector4(0.93f, 0.98f, 1.06f, -0.02f));
+            smh.shadows.Override(new Vector4(0.96f, 0.99f, 1.05f, 0.015f));
             smh.midtones.Override(new Vector4(1f, 0.99f, 0.97f, 0f));
             smh.highlights.Override(new Vector4(1.05f, 1f, 0.94f, 0.02f));
 
             Vignette vignette = profile.Add<Vignette>(true);
-            vignette.intensity.Override(tabletop ? 0.12f : 0.3f);
+            vignette.intensity.Override(tabletop ? 0.12f : 0.22f);
             vignette.smoothness.Override(0.42f);
             vignette.color.Override(new Color(0.06f, 0.03f, 0.03f));
 
             ChromaticAberration chromatic = profile.Add<ChromaticAberration>(true);
-            chromatic.intensity.Override(tabletop ? 0f : 0.06f);
+            chromatic.intensity.Override(tabletop ? 0f : 0.03f);
 
             if (!tabletop)
             {
                 FilmGrain grain = profile.Add<FilmGrain>(true);
                 grain.type.Override(FilmGrainLookup.Thin1);
-                grain.intensity.Override(0.16f);
+                grain.intensity.Override(0.1f);
                 grain.response.Override(0.85f);
 
                 MotionBlur motionBlur = profile.Add<MotionBlur>(true);
                 motionBlur.quality.Override(MotionBlurQuality.High);
-                motionBlur.intensity.Override(0.25f);
-                motionBlur.clamp.Override(0.06f);
+                motionBlur.intensity.Override(0.18f);
+                motionBlur.clamp.Override(0.035f);
 
                 LensDistortion lens = profile.Add<LensDistortion>(true);
                 lens.intensity.Override(0f);
@@ -479,6 +498,28 @@ namespace Crashout.Presentation
             material.SetColor("_EmissionColor", colour);
             material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
             if (emissionMap != null) material.SetTexture("_EmissionMap", emissionMap);
+        }
+
+        /// <summary>An alpha-blended lit decal (wall scars, road wear). Sits on the surface and takes its lighting.</summary>
+        internal static Material DecalMaterial(string name, Texture2D albedo, Color tint, Texture2D normal = null, float smoothness = 0.12f)
+        {
+            if (litShader == null) litShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material material = Lit(name, tint, 0f, smoothness);
+            material.SetTexture("_BaseMap", albedo);
+            if (normal != null) Normal(material, normal, 1.4f);
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
+            material.SetFloat("_DstBlendAlpha", (float)BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0f);
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.SetShaderPassEnabled("ShadowCaster", false);
+            material.SetShaderPassEnabled("DepthOnly", false);
+            material.renderQueue = (int)RenderQueue.Transparent - 20;
+            return material;
         }
 
         internal void Detail(Material material, float tileMetres, float worldSize)

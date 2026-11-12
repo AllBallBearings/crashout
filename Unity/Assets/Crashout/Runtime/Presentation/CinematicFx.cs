@@ -84,17 +84,17 @@ namespace Crashout.Presentation
 
             if (adjustments != null)
             {
-                adjustments.postExposure.Override(baseExposure + flash * 1.6f + punch * 0.25f + slowMotion * 0.12f);
-                adjustments.saturation.Override(baseSaturation - slowMotion * 18f);
+                adjustments.postExposure.Override(baseExposure + flash * 1.1f + punch * 0.18f + slowMotion * 0.1f);
+                adjustments.saturation.Override(baseSaturation - slowMotion * 14f);
                 adjustments.contrast.Override(baseContrast + slowMotion * 6f + tension * 4f);
             }
             if (whiteBalance != null) whiteBalance.temperature.Override(baseTemperature - slowMotion * 12f + flash * 20f);
             if (vignette != null) vignette.intensity.Override(baseVignette + tension * (tabletop ? 0f : 0.08f) + slowMotion * (tabletop ? 0.05f : 0.1f));
-            if (bloom != null) bloom.intensity.Override(baseBloom + flash * 1.4f + slowMotion * 0.2f);
+            if (bloom != null) bloom.intensity.Override(baseBloom + flash * 0.9f + slowMotion * 0.15f);
             if (tabletop) return;
 
-            if (chromatic != null) chromatic.intensity.Override(baseChromatic + (boosting ? 0.18f : 0f) + punch * 0.5f + slowMotion * 0.25f);
-            if (motionBlur != null) motionBlur.intensity.Override(Mathf.Lerp(0.1f, 0.55f, Mathf.InverseLerp(10f, 45f, speed)) * (impact ? 0.3f : 1f));
+            if (chromatic != null) chromatic.intensity.Override(baseChromatic + (boosting ? 0.1f : 0f) + punch * 0.16f + slowMotion * 0.08f);
+            if (motionBlur != null) motionBlur.intensity.Override(Mathf.Lerp(0.06f, 0.34f, Mathf.InverseLerp(12f, 45f, speed)) * (impact ? 0.3f : 1f));
             if (lens != null)
             {
                 float squeeze = boosting ? -0.16f : phase == GamePhase.Driving ? -Mathf.InverseLerp(20f, 45f, speed) * 0.06f : 0f;

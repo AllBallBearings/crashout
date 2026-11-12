@@ -41,6 +41,14 @@ same Rigidbody world              |
 
 `ArBoardCoordinator` maps canonical full-size meters through a shared tabletop origin and a default scale of `1 / 32`. `PresentationSynchronizer` updates render-only proxies from the same entity snapshots used by network spectators. Physics bodies never sit below the scaled AR hierarchy.
 
+### Turn replay
+
+`TurnReplay` starts automatically at Driving and captures the final frame after Results. It samples presentation state at 20 Hz in unscaled time, retaining the original impact slow motion. `ReplayWorld` stores sparse render tracks in canonical metres, copies mesh versions only when `ReplayMeshRevision` changes, and shares unchanged material versions. Particle history stores evaluated world positions, colours, sizes and seeds, then interpolates matching particles independently of the viewing camera. Cosmetic particle samples are thinned around a 48 MiB budget on unusually long turns, preserving effect birth/death boundaries; vehicle tracks retain their sampling rate.
+
+Playback creates render-only geometry, hides live renderers/lights, and pauses simulation time and live audio. `ReplayPlaybackClock` advances using unscaled delta time at the selected speed. AR Foundation and `ArTabletopMode.SyncCamera` continue updating the physical viewpoint; no camera pose is recorded. The canonical rigidbodies, scores and phase are not rewound, and no session events are re-emitted. Closing restores the original render flags, lights, audio pause state and time scale. Retry/scenario change releases the recording and cloned resources before reset.
+
+The current scope retains the most recent turn in memory, with silent playback and no file export or network transport. New in-place mesh editing systems must call `ReplayMeshRevision.Changed` after updating a mesh.
+
 ### Network seam
 
 The serializable `DriverInputCommand`, `EntitySnapshot`, `ScoreEvent`, host tick, entity IDs, and phase sequence are deliberately engine-level contracts. The LAN transport layer can wrap these with Netcode for GameObjects without moving authority into `NetworkBehaviour` callbacks or creating a second simulation.

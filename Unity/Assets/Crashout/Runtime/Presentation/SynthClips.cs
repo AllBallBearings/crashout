@@ -85,17 +85,358 @@ namespace Crashout.Presentation
                 int s0 = Mathf.RoundToInt(Range(random, 0f, 0.05f) * Rate);
                 for (int i = 0; i < 220 && s0 + i < d.Length; i++) d[s0 + i] += Noise(random) * Mathf.Exp(-i / 30f) * 0.7f;
             }
-            SoftClip(d, heavy ? 1.6f : 1.4f);
+            // Tearing sheet metal: noise through a resonance that falls as the panel folds.
+            {
+                float low = 0f, band = 0f;
+                float tearLength = heavy ? 0.75f : 0.45f;
+                float startHz = Range(random, 2200f, 3400f), endHz = heavy ? 260f : 420f;
+                int n = Mathf.Min(d.Length, Mathf.RoundToInt(tearLength * Rate));
+                for (int i = 0; i < n; i++)
+                {
+                    float u = i / (float)n;
+                    float hz = Mathf.Lerp(startHz, endHz, Mathf.Sqrt(u)) * (1f + 0.08f * Mathf.Sin(u * 90f));
+                    float f = 2f * Mathf.Sin(Mathf.PI * hz / Rate);
+                    low += f * band;
+                    float high = Noise(random) - low - 0.12f * band;
+                    band += f * high;
+                    d[i] += band * 0.16f * Mathf.Sin(Mathf.Clamp01(u * 6f) * Mathf.PI * 0.5f) * (1f - u) * (heavy ? 1.3f : 1f);
+                }
+            }
+            SoftClip(d, heavy ? 1.9f : 1.6f);
+            Reflect(d, heavy ? 0.3f : 0.22f);
+            return d;
+        }
+
+        /// <summary>A felt-not-heard cinema sub drop that sits under the biggest hits.</summary>
+        public static float[] RenderSubDrop()
+        {
+            float[] d = Buffer(2.2f);
+            float phase = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                float hz = 28f + 52f * Mathf.Exp(-t * 3.2f);
+                phase += TwoPi * hz / Rate;
+                float env = Mathf.Clamp01(t / 0.006f) * Mathf.Exp(-t * 2.1f);
+                d[i] = (Mathf.Sin(phase) + 0.25f * Mathf.Sin(phase * 2f) * Mathf.Exp(-t * 6f)) * env;
+            }
+            SoftClip(d, 1.5f);
+            return d;
+        }
+
+        /// <summary>Stressed metal groaning as a chassis twists: a slipping, bowed resonance sliding downward.</summary>
+        public static float[] RenderMetalGroan(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(1.7f);
+            float[] ratios = { 1f, 2.32f, 3.86f, 5.1f };
+            float[] low = new float[4], band = new float[4];
+            float baseHz = Range(random, 150f, 230f);
+            float saw = 0f, wobblePhase = Range(random, 0f, 6f);
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                float u = t / 1.7f;
+                float slip = 0.5f + 0.5f * Mathf.Sin(wobblePhase + t * (38f - 20f * u));
+                float hz = baseHz * (1f - 0.42f * u) * (1f + 0.05f * Mathf.Sin(t * 53f));
+                saw = Mathf.Repeat(saw + hz / Rate, 1f);
+                float excite = (saw * 2f - 1f) * slip + Noise(random) * 0.35f * slip;
+                float sum = 0f;
+                for (int k = 0; k < 4; k++)
+                {
+                    float f = 2f * Mathf.Sin(Mathf.PI * Mathf.Min(9000f, hz * ratios[k] * 2.4f) / Rate);
+                    low[k] += f * band[k];
+                    float high = excite - low[k] - 0.05f * band[k];
+                    band[k] += f * high;
+                    sum += band[k] / (k + 1.5f);
+                }
+                float env = Mathf.Clamp01(t / 0.05f) * Mathf.Pow(Mathf.Clamp01(1f - u), 1.4f);
+                d[i] = sum * env * 0.2f;
+            }
+            SoftClip(d, 1.3f);
+            Reflect(d, 0.25f);
+            return d;
+        }
+
+        // ------------------------------------------------------------------ city damage
+
+        /// <summary>A vehicle burying itself in masonry: a dead, heavy thud with a crack and a spray of grit.</summary>
+        public static float[] RenderConcreteHit(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(1.1f);
+            float phase = 0f, lp = 0f, lp2 = 0f;
+            float thumpHz = Range(random, 62f, 86f);
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                phase += TwoPi * thumpHz * (1f + 0.9f * Mathf.Exp(-t * 40f)) / Rate;
+                lp += 0.09f * (Noise(random) - lp);
+                lp2 += 0.5f * (Noise(random) - lp2);
+                d[i] = Mathf.Sin(phase) * Mathf.Exp(-t * 11f) * 1.2f + lp * Mathf.Exp(-t * 8f) * 2.4f + lp2 * Mathf.Exp(-t * 70f) * 0.8f;
+            }
+            Clatter(d, random, 34, 0.02f, 0.8f, 260f, 1500f, 45f, 150f, 0.3f);
+            SoftClip(d, 1.6f);
+            Reflect(d, 0.3f);
+            return d;
+        }
+
+        /// <summary>Loosened masonry and fittings coming down: stony clatter over a hiss of dust.</summary>
+        public static float[] RenderRubble(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(1.9f);
+            float lp = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                lp += 0.22f * (Noise(random) - lp);
+                d[i] = (Noise(random) - lp) * 0.06f * Mathf.Sin(Mathf.Clamp01(t / 0.3f) * Mathf.PI * 0.5f) * Mathf.Exp(-t * 2.4f);
+            }
+            Clatter(d, random, 60, 0.03f, 1.6f, 180f, 1300f, 30f, 110f, 0.4f);
+            Normalize(d, 0.8f);
+            Reflect(d, 0.25f);
+            return d;
+        }
+
+        /// <summary>A hollow steel pole struck and ringing: tubular modes over a hard knock.</summary>
+        public static float[] RenderPoleClang(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(1.8f);
+            float f0 = Range(random, 150f, 230f);
+            float[] ratios = { 1f, 2.76f, 5.4f, 8.93f, 13.3f };
+            for (int m = 0; m < ratios.Length; m++)
+            {
+                float hz = f0 * ratios[m];
+                float decay = 2.2f + m * 2.6f;
+                float amplitude = 0.5f / (m * 0.7f + 1f);
+                for (int i = 0; i < d.Length; i++)
+                {
+                    float t = i / (float)Rate;
+                    d[i] += Mathf.Sin(TwoPi * hz * t) * amplitude * Mathf.Exp(-t * decay) * (1f + 0.2f * Mathf.Sin(TwoPi * 7f * t));
+                }
+            }
+            for (int i = 0; i < 500 && i < d.Length; i++) d[i] += Noise(random) * Mathf.Exp(-i / 60f) * 0.9f;
+            SoftClip(d, 1.3f);
+            return d;
+        }
+
+        /// <summary>Mains arcing as a lamp dies.</summary>
+        public static float[] RenderElectricZap()
+        {
+            var random = new System.Random(71);
+            float[] d = Buffer(0.7f);
+            float gate = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                if (i % 220 == 0) gate = random.NextDouble() < 0.6 * (1f - t / 0.7f) ? 1f : 0f;
+                float buzz = Mathf.Sign(Mathf.Sin(TwoPi * 100f * t)) * 0.4f + Mathf.Sign(Mathf.Sin(TwoPi * 3170f * t)) * 0.15f;
+                d[i] = (buzz + Noise(random) * 0.6f) * gate * Mathf.Exp(-t * 3.5f);
+            }
+            HighPass(d, 0.9f);
+            Normalize(d, 0.6f);
+            return d;
+        }
+
+        /// <summary>A tree trunk splitting.</summary>
+        public static float[] RenderWoodCrack(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(1.2f);
+            float low = 0f, band = 0f;
+            float f = 2f * Mathf.Sin(Mathf.PI * 760f / Rate);
+            float[] cracks = { 0f, Range(random, 0.05f, 0.11f), Range(random, 0.16f, 0.3f), Range(random, 0.4f, 0.6f) };
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                float burst = 0f;
+                foreach (float c in cracks) if (t >= c) burst += Mathf.Exp(-(t - c) * 55f);
+                low += f * band;
+                float high = Noise(random) * burst - low - 0.3f * band;
+                band += f * high;
+                d[i] = band * 0.9f + Noise(random) * burst * 0.25f + Mathf.Sin(TwoPi * 70f * t) * Mathf.Exp(-t * 9f) * 0.8f;
+            }
+            Clatter(d, random, 16, 0.3f, 1.1f, 500f, 2500f, 60f, 160f, 0.15f);
+            SoftClip(d, 1.4f);
+            return d;
+        }
+
+        /// <summary>A hollow plastic or sheet-metal knock: bins, cones, barriers.</summary>
+        public static float[] RenderPlasticKnock(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(0.6f);
+            float hz = Range(random, 170f, 300f);
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                d[i] = Mathf.Sin(TwoPi * hz * t) * Mathf.Exp(-t * 22f) + Mathf.Sin(TwoPi * hz * 2.4f * t) * Mathf.Exp(-t * 30f) * 0.4f
+                    + Noise(random) * Mathf.Exp(-t * 80f) * 0.5f;
+            }
+            Clatter(d, random, 6, 0.1f, 0.5f, 400f, 1400f, 40f, 90f, 0.25f);
+            Normalize(d, 0.8f);
+            return d;
+        }
+
+        /// <summary>Mains water roaring out of a sheared hydrant. Loops.</summary>
+        public static float[] RenderWaterLoop(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(3f);
+            float lp = 0f, hp = 0f, brown = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                float x = Noise(random);
+                lp += 0.5f * (x - lp);
+                hp += 0.04f * (lp - hp);
+                brown = Mathf.Clamp(brown + Noise(random) * 0.03f, -1f, 1f) * 0.998f;
+                float swell = 0.8f + 0.2f * Mathf.Sin(TwoPi * t / 3f * 2f) * Mathf.Sin(TwoPi * t / 3f * 5f);
+                d[i] = (lp - hp) * swell + brown * 0.5f;
+            }
+            return d;
+        }
+
+        /// <summary>A burning wreck: a low roar with spitting crackles. Loops.</summary>
+        public static float[] RenderFireLoop(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(4f);
+            float brown = 0f, lp = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                brown = Mathf.Clamp(brown + Noise(random) * 0.035f, -1f, 1f) * 0.9985f;
+                lp += 0.05f * (Noise(random) - lp);
+                d[i] = (brown * 0.9f + lp * 1.4f) * (0.75f + 0.25f * Mathf.Sin(TwoPi * t * 0.75f));
+            }
+            for (int p = 0; p < 150; p++)
+            {
+                int s0 = Mathf.RoundToInt(Range(random, 0.05f, 3.9f) * Rate);
+                float gain = Range(random, 0.15f, 0.8f);
+                int n = Mathf.RoundToInt(Range(random, 0.0008f, 0.004f) * Rate);
+                for (int i = 0; i < n && s0 + i < d.Length; i++) d[s0 + i] += Noise(random) * gain * (1f - i / (float)n);
+            }
+            return d;
+        }
+
+        /// <summary>A car alarm set off by the pile-up. Loops; <paramref name="variant"/> picks the pattern.</summary>
+        public static float[] RenderCarAlarm(int variant)
+        {
+            float[] d = Buffer(variant == 0 ? 2.4f : 2f);
+            float phase = 0f, lp = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                float hz;
+                float gate = 1f;
+                if (variant == 0)
+                {
+                    // Six rising whoops then six fast chirps.
+                    float u = Mathf.Repeat(t, 1.2f);
+                    bool chirps = Mathf.Repeat(t, 2.4f) > 1.2f;
+                    float cycle = chirps ? Mathf.Repeat(u * 10f, 1f) : Mathf.Repeat(u * 5f, 1f);
+                    hz = chirps ? Mathf.Lerp(2100f, 1300f, cycle) : Mathf.Lerp(900f, 1900f, cycle);
+                    gate = Mathf.Clamp01(cycle * 20f) * Mathf.Clamp01((1f - cycle) * 20f);
+                }
+                else
+                {
+                    // Two-tone horn alarm.
+                    float cycle = Mathf.Repeat(t * 2f, 1f);
+                    hz = cycle < 0.5f ? 1480f : 1110f;
+                    float within = Mathf.Repeat(cycle * 2f, 1f);
+                    gate = Mathf.Clamp01(within * 30f) * Mathf.Clamp01((0.9f - within) * 30f);
+                }
+                phase = Mathf.Repeat(phase + hz / Rate, 1f);
+                float square = phase < 0.5f ? 1f : -1f;
+                lp += 0.35f * (square - lp);
+                d[i] = lp * gate;
+            }
+            return d;
+        }
+
+        /// <summary>Emergency sirens converging from a few streets away. Loops.</summary>
+        public static float[] RenderSiren(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(8f);
+            float phaseA = 0f, phaseB = 0f, lpA = 0f, lpB = 0f, far = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                // A slow wail and, further off, a faster yelp; both periods divide the loop.
+                float wail = 0.5f - 0.5f * Mathf.Cos(TwoPi * t / 4f);
+                float yelp = Mathf.Repeat(t * 3.5f, 1f);
+                phaseA = Mathf.Repeat(phaseA + Mathf.Lerp(620f, 1320f, wail) / Rate, 1f);
+                phaseB = Mathf.Repeat(phaseB + Mathf.Lerp(700f, 1500f, yelp < 0.5f ? yelp * 2f : 2f - yelp * 2f) / Rate, 1f);
+                lpA += 0.2f * ((phaseA < 0.4f ? 1f : -1f) - lpA);
+                lpB += 0.2f * ((phaseB < 0.4f ? 1f : -1f) - lpB);
+                float mix = lpA * 0.7f + lpB * 0.35f * (0.5f + 0.5f * Mathf.Sin(TwoPi * t / 8f));
+                // Distance: the highs are gone and the level drifts on the wind.
+                far += 0.12f * (mix - far);
+                d[i] = far * (0.8f + 0.2f * Mathf.Sin(TwoPi * t / 8f * 3f)) + Noise(random) * 0.004f;
+            }
+            return d;
+        }
+
+        /// <summary>Ears ringing after a blast at point-blank range.</summary>
+        public static float[] RenderTinnitus()
+        {
+            float[] d = Buffer(4.5f);
+            for (int i = 0; i < d.Length; i++)
+            {
+                float t = i / (float)Rate;
+                float env = Mathf.Clamp01(t / 0.08f) * Mathf.Pow(Mathf.Clamp01(1f - t / 4.5f), 2.2f);
+                d[i] = (Mathf.Sin(TwoPi * 5210f * t) * 0.6f + Mathf.Sin(TwoPi * 5236f * t) * 0.4f + Mathf.Sin(TwoPi * 7820f * t) * 0.12f) * env;
+            }
+            Normalize(d, 0.5f);
+            return d;
+        }
+
+        /// <summary>Something large passing very close, very fast.</summary>
+        public static float[] RenderWhoosh(int seed)
+        {
+            var random = new System.Random(seed);
+            float[] d = Buffer(0.9f);
+            float low = 0f, band = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float u = i / (float)d.Length;
+                float shape = Mathf.Pow(Mathf.Sin(u * Mathf.PI), 2.4f);
+                float hz = Mathf.Lerp(900f, 320f, u) + 500f * shape;
+                float f = 2f * Mathf.Sin(Mathf.PI * hz / Rate);
+                low += f * band;
+                float high = Noise(random) - low - 0.5f * band;
+                band += f * high;
+                d[i] = (band * 0.6f + low * 0.3f) * shape;
+            }
+            Normalize(d, 0.8f);
             return d;
         }
 
         /// <summary>Glass bursting: a crack followed by a shower of high, short resonant tinkles.</summary>
         public static float[] RenderGlass(int seed)
         {
+            return RenderGlass(seed, false);
+        }
+
+        /// <summary>
+        /// <paramref name="pane"/> renders a whole window letting go: a lower crack, more glass and a
+        /// long tail of pieces landing on the pavement.
+        /// </summary>
+        public static float[] RenderGlass(int seed, bool pane)
+        {
             var random = new System.Random(seed);
-            float[] d = Buffer(1.3f);
+            float[] d = Buffer(pane ? 2.2f : 1.3f);
             for (int i = 0; i < 260; i++) d[i] += Noise(random) * Mathf.Exp(-i / 50f) * 0.9f;
-            int grains = 140;
+            if (pane)
+            {
+                for (int i = 0; i < 1800; i++) d[i] += Mathf.Sin(TwoPi * 640f * i / Rate) * Mathf.Exp(-i / 260f) * 0.5f;
+                Clatter(d, random, 70, 0.35f, 2f, 3000f, 9000f, 60f, 200f, 0.16f);
+            }
+            int grains = pane ? 220 : 140;
             for (int g = 0; g < grains; g++)
             {
                 float start = -Mathf.Log(1f - (float)random.NextDouble() * 0.97f) * 0.16f;
@@ -186,7 +527,16 @@ namespace Crashout.Presentation
                     d[s0 + i] += Mathf.Sin(TwoPi * hz * t) * Mathf.Exp(-t * 35f) * 0.12f;
                 }
             }
-            SoftClip(d, 1.5f);
+            // A second, slower concussion as the pressure wave comes back off the buildings.
+            float echoPhase = 0f;
+            int echoStart = Mathf.RoundToInt(0.19f * Rate);
+            for (int i = echoStart; i < d.Length; i++)
+            {
+                float t = (i - echoStart) / (float)Rate;
+                echoPhase += TwoPi * Mathf.Lerp(46f, 22f, Mathf.Clamp01(t / 1.5f)) / Rate;
+                d[i] += Mathf.Sin(echoPhase) * Mathf.Clamp01(t / 0.01f) * Mathf.Exp(-t * 1.3f) * 0.7f;
+            }
+            SoftClip(d, 1.8f);
             return d;
         }
 
@@ -259,9 +609,9 @@ namespace Crashout.Presentation
             return d;
         }
 
-        public static float[] RenderWind()
+        public static float[] RenderWind(int seed = 29)
         {
-            var random = new System.Random(29);
+            var random = new System.Random(seed);
             float[] d = Buffer(4f);
             float b0 = 0f, b1 = 0f, b2 = 0f, hp = 0f;
             for (int i = 0; i < d.Length; i++)
@@ -344,9 +694,9 @@ namespace Crashout.Presentation
         }
 
         /// <summary>City and countryside bed: distant traffic, a breeze and the odd bird.</summary>
-        public static float[] RenderAmbience()
+        public static float[] RenderAmbience(int seed = 43)
         {
-            var random = new System.Random(43);
+            var random = new System.Random(seed);
             float[] d = Buffer(8f);
             float brown = 0f, lp = 0f;
             for (int i = 0; i < d.Length; i++)
@@ -594,6 +944,65 @@ namespace Crashout.Presentation
             AudioClip clip = AudioClip.Create(name, data.Length, 1, Rate, false);
             clip.SetData(data, 0);
             return clip;
+        }
+
+        /// <summary>Wraps two buffers as a stereo clip; decorrelated noise in each gives a wide image.</summary>
+        public static AudioClip ClipStereo(string name, float[] left, float[] right, bool loop = false)
+        {
+            if (loop) { MakeLoop(ref left); MakeLoop(ref right); }
+            Normalize(left, loop ? 0.75f : 0.95f, true);
+            Normalize(right, loop ? 0.75f : 0.95f, true);
+            int frames = Mathf.Min(left.Length, right.Length);
+            var data = new float[frames * 2];
+            for (int i = 0; i < frames; i++)
+            {
+                data[i * 2] = left[i];
+                data[i * 2 + 1] = right[i];
+            }
+            AudioClip clip = AudioClip.Create(name, frames, 2, Rate, false);
+            clip.SetData(data, 0);
+            return clip;
+        }
+
+        /// <summary>Scatters short resonant ticks through a buffer: falling glass, grit, clattering parts.</summary>
+        private static void Clatter(float[] d, System.Random random, int count, float from, float to, float lowHz, float highHz, float decayMin, float decayMax, float level)
+        {
+            for (int b = 0; b < count; b++)
+            {
+                float start = Mathf.Lerp(from, to, Mathf.Pow((float)random.NextDouble(), 1.6f));
+                int s0 = Mathf.RoundToInt(start * Rate);
+                if (s0 >= d.Length) continue;
+                float hz = Mathf.Exp(Range(random, Mathf.Log(lowHz), Mathf.Log(highHz)));
+                float decay = Range(random, decayMin, decayMax);
+                float gain = Range(random, 0.3f, 1f) * level * (1f - 0.6f * (start - from) / Mathf.Max(0.01f, to - from));
+                int n = Mathf.Min(d.Length - s0, Mathf.RoundToInt(Rate * 5f / decay));
+                float step = TwoPi * hz / Rate, step2 = step * 1.83f;
+                for (int i = 0; i < n; i++)
+                {
+                    float t = i / (float)Rate;
+                    d[s0 + i] += (Mathf.Sin(step * i) + 0.4f * Mathf.Sin(step2 * i) + Noise(random) * 0.4f * Mathf.Exp(-t * 400f)) * gain * Mathf.Exp(-t * decay);
+                }
+            }
+        }
+
+        /// <summary>A few early reflections, as if off the street's facades, baked into a one-shot.</summary>
+        private static void Reflect(float[] d, float amount)
+        {
+            int[] taps = { Mathf.RoundToInt(0.023f * Rate), Mathf.RoundToInt(0.041f * Rate), Mathf.RoundToInt(0.067f * Rate), Mathf.RoundToInt(0.113f * Rate) };
+            float[] gains = { 0.6f, 0.45f, 0.32f, 0.2f };
+            var dry = (float[])d.Clone();
+            float lp = 0f;
+            for (int i = 0; i < d.Length; i++)
+            {
+                float wet = 0f;
+                for (int k = 0; k < taps.Length; k++)
+                {
+                    if (i >= taps[k]) wet += dry[i - taps[k]] * gains[k];
+                }
+                lp += 0.35f * (wet - lp);
+                d[i] += lp * amount;
+            }
+            Normalize(d, 0.98f, true);
         }
 
         private static float[] Buffer(float seconds) => new float[Mathf.Max(1, Mathf.RoundToInt(seconds * Rate))];

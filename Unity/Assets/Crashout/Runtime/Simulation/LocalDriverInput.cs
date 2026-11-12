@@ -10,6 +10,25 @@ namespace Crashout.Simulation
         private bool touchThrottle;
         private bool touchBrake;
         private bool touchBoost;
+        private float touchPush;
+
+        /// <summary>Vertical deflection of the touch stick (-1 back .. 1 forward); used to steer a wreck.</summary>
+        public void SetTouchPush(float push)
+        {
+            touchPush = Mathf.Clamp(push, -1f, 1f);
+        }
+
+        /// <summary>
+        /// Aftertouch wish in screen space: x is right, y is away from the camera. Combines the stick
+        /// with the keyboard and the pedals, so every way of driving can also steer the wreck.
+        /// </summary>
+        public Vector2 AftertouchVector(DriverInputCommand command)
+        {
+            float push = command.Throttle - command.Brake;
+            if (Mathf.Abs(touchPush) > Mathf.Abs(push)) push = touchPush;
+            Vector2 wish = new Vector2(command.Steering, push);
+            return wish.sqrMagnitude > 1f ? wish.normalized : wish;
+        }
 
         public void SetTouchBoost(bool boost)
         {
