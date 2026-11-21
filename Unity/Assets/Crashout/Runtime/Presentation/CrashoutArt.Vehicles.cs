@@ -6,10 +6,8 @@ using UnityEngine.Rendering;
 namespace Crashout.Presentation
 {
     /// <summary>
-    /// Vehicles. Car bodies are lofted from side, plan and section profiles (wheel arches, shoulder
-    /// tumblehome, raked glass), clear-coat painted, with lamp lenses, plates, mirrors, seams and
-    /// real wheels (tread, spoked alloy rims, discs). Physics colliders are unchanged; this is visual.
-    /// Parts of a car are merged per material into a few meshes the deformer can dent.
+    /// Profiled vehicle shells with open wheel arches, fitted glazing, interiors and separate panels.
+    /// Materials are batched within each structural section; panels and wheels can detach independently.
     /// </summary>
     public sealed partial class CrashoutArt
     {
@@ -32,6 +30,7 @@ namespace Crashout.Presentation
             public bool Bed;
             public bool Sport;
             public float Exponent = 3.6f;
+            public float FrontAxle = 1.3f, RearAxle = -1.3f;
 
             public float Half => Length * 0.5f;
             public float Top(float z) => Keys(TopZ, TopH, z);
@@ -80,7 +79,7 @@ namespace Crashout.Presentation
                 d.WidthW = new[] { 0.7f, 0.8f, 0.83f, 0.8f, 0.79f, 0.77f, 0.66f };
                 d.RearBase = -1.14f; d.RearTop = -0.5f; d.FrontTop = -0.08f; d.FrontBase = 0.48f;
                 d.Belt = 0.6f; d.Roof = 0.87f; d.RoofRatio = 0.74f;
-                return d;
+                return RefineDesign(d, vehicleClass, true);
             }
 
             switch (vehicleClass)
@@ -110,6 +109,25 @@ namespace Crashout.Presentation
                     d.RearBase = -1.0f; d.RearTop = -0.58f; d.FrontTop = 0.02f; d.FrontBase = 0.52f;
                     break;
             }
+            return RefineDesign(d, vehicleClass, false);
+        }
+
+        private static CarDesign RefineDesign(CarDesign d, VehicleClass kind, bool player)
+        {
+            Vector3 size = player ? new Vector3(1.86f, 1.23f, 4.25f) : VehicleSpec.For(kind).BodySize;
+            float sx = size.x / (d.Width(0f) * 2f), sy = size.y / d.Roof, sz = size.z / d.Length;
+            for (int i = 0; i < d.TopZ.Length; i++) { d.TopZ[i] *= sz; d.TopH[i] *= sy; }
+            for (int i = 0; i < d.BottomZ.Length; i++) { d.BottomZ[i] *= sz; d.BottomH[i] *= sy; }
+            for (int i = 0; i < d.WidthZ.Length; i++) { d.WidthZ[i] *= sz; d.WidthW[i] *= sx; }
+            d.Length = size.z; d.Belt *= sy; d.Roof = size.y;
+            d.WheelRadius = player ? 0.31f : VehicleSpec.For(kind).WheelRadius;
+            d.FrontAxle = VehicleSpec.For(kind).WheelPositions[0].z; d.RearAxle = VehicleSpec.For(kind).WheelPositions[2].z;
+            d.Track = size.x * 0.5f - 0.12f; d.TyreWidth = player ? 0.23f : 0.21f;
+            d.RearBase = -size.z * 0.33f; d.RearTop = -size.z * 0.19f;
+            d.FrontTop = size.z * 0.08f; d.FrontBase = size.z * 0.29f; d.RoofRatio = 0.82f;
+            if (kind == VehicleClass.Hatch && !player) { d.RearBase = -size.z * 0.45f; d.RearTop = -size.z * 0.34f; }
+            if (d.PaintedUpper) { d.RearBase = -size.z * 0.49f; d.RearTop = -size.z * 0.47f; d.FrontTop = size.z * 0.2f; d.FrontBase = size.z * 0.39f; d.RoofRatio = 0.94f; }
+            if (d.Bed) { d.RearBase = -size.z * 0.15f; d.RearTop = -size.z * 0.13f; d.FrontTop = size.z * 0.15f; d.FrontBase = size.z * 0.3f; }
             return d;
         }
 
@@ -131,10 +149,18 @@ namespace Crashout.Presentation
             Material indicator = new Material(indicatorBase) { name = "Indicator " + name };
             Material plate = plates[Mathf.Abs(name.GetHashCode()) % plates.Length];
             var detachables = new List<GameObject>();
+            var deformables = new List<MeshFilter>();
             float ground, wheelRadius, tyreWidth, track;
             float halfLength;
 
-            if (vehicleClass == VehicleClass.Bus)
+            VehicleBodyAsset asset = VehicleBodyAsset.Load(player ? "Player" : vehicleClass.ToString());
+            if (asset != null)
+            {
+                ground = asset.Ground; wheelRadius = asset.WheelRadius; tyreWidth = asset.TyreWidth;
+                track = asset.Track; halfLength = asset.HalfLength;
+                BuildVehicleAsset(t, asset, paint, tail, indicator, plate, detachables, deformables);
+            }
+            else if (vehicleClass == VehicleClass.Bus)
             {
                 ground = -spec.ColliderSize.y * 0.5f;
                 wheelRadius = 0.5f; tyreWidth = 0.32f; track = 1.0f; halfLength = 3.75f;
@@ -155,7 +181,6 @@ namespace Crashout.Presentation
             }
 
             // Merge per material. Paint first so it is the root's first renderer.
-            var deformables = new List<MeshFilter>();
             var glassRenderers = new List<Renderer>();
             var ordered = new List<Material>(parts.Keys);
             ordered.Sort((a, b) => (a == paint ? 0 : 1).CompareTo(b == paint ? 0 : 1));
@@ -200,10 +225,19 @@ namespace Crashout.Presentation
                 }
                 if (i < 2) frontPivots[i] = steerPivot.transform;
                 rollPivots[i] = rollPivot.transform;
+                detachables.Add(steerPivot);
             }
 
             VehicleLook look = root.AddComponent<VehicleLook>();
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>())
+                if (renderer.sharedMaterial == glass && !glassRenderers.Contains(renderer)) glassRenderers.Add(renderer);
             look.Configure(paint, tail, indicator, glassRenderers.ToArray(), shatteredGlass, halfLength);
+            foreach (GameObject part in detachables)
+            {
+                if (part.name.StartsWith("Wheel steer")) continue; // Shared wheel meshes stay rigid.
+                foreach (MeshFilter filter in part.GetComponentsInChildren<MeshFilter>())
+                    if (!deformables.Contains(filter)) deformables.Add(filter);
+            }
             VehicleDeformer deformer = root.AddComponent<VehicleDeformer>();
             deformer.Configure(deformables, detachables, look, halfLength, heavy ? 0.45f : 1f);
             return root;
@@ -212,292 +246,6 @@ namespace Crashout.Presentation
         // ------------------------------------------------------------------ passenger cars
 
         private delegate MeshKit KitFor(Material material);
-
-        private void BuildCarBody(Transform t, KitFor kit, CarDesign d, Material paint, Material tail, Material indicator, Material plate, bool player, List<GameObject> detachables)
-        {
-            float g = d.Ground;
-            float half = d.Half;
-            float[] wheelZ = { 0.98f, -0.98f };
-            float archRadius = d.WheelRadius + 0.065f;
-
-            // The lower body: superellipse sections between the floor (raised into wheel arches) and the shoulder line.
-            const int stations = 46, ring = 28;
-            kit(paint).Loft(stations, ring, (s, r) =>
-            {
-                float u = s / (float)(stations - 1);
-                float z = -half + d.Length * (1f - Mathf.Cos(u * Mathf.PI)) * 0.5f;
-                float top = d.Top(z);
-                float bottom = d.Bottom(z);
-                foreach (float wz in wheelZ)
-                {
-                    float dz = z - wz;
-                    if (Mathf.Abs(dz) < archRadius) bottom = Mathf.Max(bottom, d.WheelRadius + Mathf.Sqrt(archRadius * archRadius - dz * dz));
-                }
-                bottom = Mathf.Min(bottom, top - 0.06f);
-                float width = d.Width(z);
-                float endPinch = ProceduralTextures.SmoothStep(0f, 1f, Mathf.Min(1f, (half - Mathf.Abs(z)) / 0.06f));
-                width = Mathf.Lerp(width * 0.86f, width, endPinch);
-                float mid = (top + bottom) * 0.5f, extent = (top - bottom) * 0.5f;
-                float angle = r / (float)ring * Mathf.PI * 2f;
-                float cx = Mathf.Cos(angle), sy = Mathf.Sin(angle);
-                float e = 2f / d.Exponent;
-                float y = mid + extent * Mathf.Sign(sy) * Mathf.Pow(Mathf.Abs(sy), e);
-                float shoulder = 1f - 0.07f * Mathf.Clamp01((y - mid) / Mathf.Max(0.01f, extent));
-                float x = width * shoulder * Mathf.Sign(cx) * Mathf.Pow(Mathf.Abs(cx), e);
-                return new Vector3(x, g + y, z);
-            }, true, true);
-
-            // Glasshouse with tumblehome, then a painted roof skin and pillars over it.
-            Material upper = d.PaintedUpper ? paint : glass;
-            const int glassStations = 28, glassRing = 16;
-            kit(upper).Loft(glassStations, glassRing, (s, r) => GreenPoint(d, Mathf.Lerp(d.RearBase, d.FrontBase, s / (float)(glassStations - 1)), r / (float)(glassRing - 1) * Mathf.PI, 0f), true, true);
-
-            if (!d.PaintedUpper)
-            {
-                const int roofStations = 16, arc = 12;
-                float r0 = d.RearTop - 0.05f, r1 = d.FrontTop + 0.06f;
-                kit(paint).Loft(roofStations, arc * 2, (s, r) =>
-                {
-                    float z = Mathf.Lerp(r0, r1, s / (float)(roofStations - 1));
-                    bool outer = r < arc;
-                    int k = outer ? r : arc * 2 - 1 - r;
-                    float theta = Mathf.Lerp(0.2f, 0.8f, k / (float)(arc - 1)) * Mathf.PI;
-                    return GreenPoint(d, z, theta, outer ? 0.014f : 0.002f);
-                }, true, true);
-
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    Pillar(kit(paint), d, side, d.FrontBase - 0.02f, d.FrontTop + 0.02f, 0.03f);
-                    Pillar(kit(paint), d, side, d.RearBase + 0.02f, d.RearTop - 0.02f, d.Bed ? 0.03f : 0.05f);
-                    float bz = Mathf.Lerp(d.RearTop, d.FrontTop, 0.48f);
-                    Vector3 bLow = GreenPoint(d, bz, side > 0 ? 0.02f : Mathf.PI - 0.02f, 0.006f);
-                    Vector3 bHigh = GreenPoint(d, bz, side > 0 ? 0.3f * Mathf.PI : 0.7f * Mathf.PI, 0.006f);
-                    kit(trim).Cylinder(bLow, bHigh, 0.035f, 0.03f, 6);
-                }
-            }
-            else
-            {
-                // Vans: glass set into the painted upper body.
-                float wz0 = d.FrontBase - 0.02f, wz1 = d.FrontTop + 0.03f;
-                Vector3 a = new Vector3(0f, g + d.Belt + 0.04f, wz0);
-                Vector3 b = new Vector3(0f, g + d.Roof - 0.06f, wz1);
-                Quaternion rake = Quaternion.LookRotation(b - a, Vector3.forward);
-                kit(glass).Box((a + b) * 0.5f + Vector3.forward * 0.012f, new Vector3(d.Width(0.5f) * 1.7f, 0.02f, Vector3.Distance(a, b)), rake);
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    WindowPanel(kit(glass), d, side, 0.12f, 0.7f);
-                    WindowPanel(kit(glass), d, side, -1.35f, -0.15f);
-                }
-            }
-
-            // Pickup bed: floor, walls and tailgate.
-            if (d.Bed)
-            {
-                float bedTop = g + 0.74f, floor = g + 0.44f;
-                kit(trim).Box(new Vector3(0f, floor + 0.01f, -0.95f), new Vector3(1.38f, 0.02f, 1.2f), Quaternion.identity);
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    kit(paint).Box(new Vector3(side * 0.73f, (bedTop + floor) * 0.5f, -0.94f), new Vector3(0.07f, bedTop - floor, 1.24f), Quaternion.identity);
-                    kit(chrome).Box(new Vector3(side * 0.73f, bedTop + 0.01f, -0.94f), new Vector3(0.08f, 0.02f, 1.24f), Quaternion.identity);
-                }
-                kit(paint).Box(new Vector3(0f, (bedTop + floor) * 0.5f, -0.34f), new Vector3(1.52f, bedTop - floor, 0.06f), Quaternion.identity);
-                kit(paint).Box(new Vector3(0f, (bedTop + floor) * 0.5f - 0.02f, -1.555f), new Vector3(1.5f, bedTop - floor - 0.02f, 0.06f), Quaternion.identity);
-            }
-
-            // Dark chassis behind the arches so you never see through the car.
-            kit(underbody).Box(new Vector3(0f, g + 0.3f, 0f), new Vector3(d.Width(0f) * 2f - 0.34f, 0.36f, d.Length - 0.5f), Quaternion.identity);
-
-            // Lamps.
-            float frontZ = half - 0.09f, rearZ = -half + 0.05f;
-            for (int side = -1; side <= 1; side += 2)
-            {
-                float hy = g + d.Top(frontZ) - 0.07f;
-                float hx = side * (d.Width(frontZ) - (d.Sport ? 0.24f : 0.21f));
-                kit(headlight).Box(new Vector3(hx, hy, frontZ), new Vector3(d.Sport ? 0.36f : 0.32f, d.Sport ? 0.07f : 0.1f, 0.12f), Quaternion.Euler(-12f, side * -8f, 0f));
-                kit(indicator).Box(new Vector3(side * (d.Width(frontZ) - 0.06f), hy - 0.02f, frontZ - 0.05f), new Vector3(0.07f, 0.06f, 0.12f), Quaternion.Euler(0f, side * -30f, 0f));
-                float ty = g + d.Top(rearZ) - 0.08f;
-                kit(tail).Box(new Vector3(side * (d.Width(rearZ) - 0.22f), ty, rearZ), new Vector3(0.36f, 0.1f, 0.08f), Quaternion.Euler(0f, side * 6f, 0f));
-                kit(indicator).Box(new Vector3(side * (d.Width(rearZ) - 0.06f), ty, rearZ + 0.04f), new Vector3(0.06f, 0.1f, 0.1f), Quaternion.Euler(0f, side * 30f, 0f));
-
-                // Mirror on a stalk.
-                float mz = d.FrontBase - 0.12f;
-                Vector3 mirror = new Vector3(side * (d.Width(mz) + 0.07f), g + d.Belt + 0.07f, mz);
-                kit(paint).Box(mirror, new Vector3(0.1f, 0.09f, 0.15f), Quaternion.Euler(0f, side * 8f, 0f));
-                kit(glass).Box(mirror + new Vector3(0f, 0f, -0.077f), new Vector3(0.08f, 0.07f, 0.005f), Quaternion.identity);
-                kit(trim).Box(new Vector3(side * (d.Width(mz) + 0.01f), g + d.Belt + 0.05f, mz), new Vector3(0.08f, 0.03f, 0.05f), Quaternion.identity);
-
-                // Door handles and panel seams.
-                foreach (float hz in new[] { 0.12f, -0.62f })
-                {
-                    if (d.Bed && hz < -0.3f) continue;
-                    kit(chrome).Box(new Vector3(side * (d.Width(hz) - 0.002f), g + d.Belt - 0.07f, hz), new Vector3(0.025f, 0.025f, 0.12f), Quaternion.identity);
-                }
-                foreach (float seam in new[] { d.FrontBase - 0.06f, Mathf.Lerp(d.RearTop, d.FrontTop, 0.48f), d.RearBase + 0.08f })
-                {
-                    float low = d.Bottom(seam) + 0.05f, high = d.Belt - 0.02f;
-                    if (high <= low) continue;
-                    kit(trim).Box(new Vector3(side * (d.Width(seam) - 0.004f), g + (low + high) * 0.5f, seam), new Vector3(0.012f, high - low, 0.008f), Quaternion.identity);
-                }
-
-                // Bright trim along the waist rail, under the glass.
-                if (!d.PaintedUpper)
-                {
-                    float railFrom = d.RearBase + 0.06f, railTo = d.FrontBase - 0.05f;
-                    const int railSteps = 6;
-                    Vector3 last = Vector3.zero;
-                    for (int i = 0; i <= railSteps; i++)
-                    {
-                        float rz = Mathf.Lerp(railFrom, railTo, i / (float)railSteps);
-                        Vector3 point = GreenPoint(d, rz, side > 0 ? 0.015f : Mathf.PI - 0.015f, 0.012f);
-                        if (i > 0) kit(chrome).Cylinder(last, point, 0.011f, 0.011f, 5, false);
-                        last = point;
-                    }
-                }
-                // Arch liners: the dark inner wing seen behind each wheel.
-                foreach (float wz in wheelZ)
-                {
-                    kit(underbody).Box(new Vector3(side * (d.Width(wz) - 0.2f), g + d.WheelRadius + 0.1f, wz), new Vector3(0.05f, d.WheelRadius * 2f + 0.1f, archRadius * 2f + 0.06f), Quaternion.identity);
-                }
-
-                // Side skirt between the arches.
-                kit(trim).Box(new Vector3(side * (d.Width(0f) - 0.03f), g + d.Bottom(0f) + 0.035f, 0f), new Vector3(0.05f, 0.07f, 1.96f - archRadius * 2f), Quaternion.identity);
-            }
-
-            // Wipers parked at the base of the screen, and a stub aerial on the roof.
-            if (!d.PaintedUpper)
-            {
-                for (int w = -1; w <= 1; w += 2)
-                {
-                    Vector3 pivot = GreenPoint(d, d.FrontBase - 0.03f, Mathf.PI * (0.5f - w * 0.16f), 0.012f);
-                    Vector3 tip = GreenPoint(d, d.FrontBase - 0.1f, Mathf.PI * (0.5f + w * 0.08f), 0.012f);
-                    kit(trim).Cylinder(pivot, tip, 0.008f, 0.006f, 4, false);
-                }
-                Vector3 aerial = GreenPoint(d, d.RearTop + 0.1f, Mathf.PI * 0.5f, 0.012f);
-                kit(trim).Cylinder(aerial, aerial + new Vector3(0f, 0.16f, -0.08f), 0.008f, 0.004f, 5);
-            }
-
-            // Grille, bumpers (detachable), plates, exhaust.
-            float noseY = g + d.Top(half - 0.02f);
-            kit(grille).Box(new Vector3(0f, noseY - 0.1f, half - 0.015f), new Vector3(d.Sport ? 0.5f : 0.7f, 0.12f, 0.05f), Quaternion.identity);
-            if (d.Sport) kit(grille).Box(new Vector3(0f, g + 0.2f, half - 0.02f), new Vector3(1.1f, 0.1f, 0.06f), Quaternion.identity);
-            detachables.Add(Bumper(t, "Front bumper", new Vector3(0f, g + 0.25f, half - 0.05f), new Vector3(d.Width(half - 0.1f) * 2f - 0.04f, 0.17f, 0.18f), paint, plate, true, g));
-            detachables.Add(Bumper(t, "Rear bumper", new Vector3(0f, g + 0.3f, -half + 0.05f), new Vector3(d.Width(-half + 0.1f) * 2f - 0.04f, 0.17f, 0.18f), paint, plate, false, g));
-            int pipes = d.Sport ? 2 : 1;
-            for (int p = 0; p < pipes; p++)
-            {
-                float px = d.Sport ? (p == 0 ? -0.32f : 0.32f) : 0.42f;
-                kit(chrome).Cylinder(new Vector3(px, g + 0.16f, -half + 0.12f), new Vector3(px, g + 0.16f, -half - 0.04f), 0.045f, 0.05f, 10);
-                kit(trim).Cylinder(new Vector3(px, g + 0.16f, -half - 0.035f), new Vector3(px, g + 0.16f, -half - 0.042f), 0.036f, 0.036f, 10);
-            }
-
-            if (player)
-            {
-                // Rear wing, racing stripes, splitter and diffuser.
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    kit(trim).Box(new Vector3(side * 0.5f, g + 0.74f, -1.43f), new Vector3(0.05f, 0.16f, 0.12f), Quaternion.Euler(10f, 0f, 0f));
-                }
-                kit(paint).Box(new Vector3(0f, g + 0.83f, -1.46f), new Vector3(1.5f, 0.035f, 0.32f), Quaternion.Euler(-6f, 0f, 0f));
-                kit(trim).Box(new Vector3(0f, g + 0.83f, -1.46f), new Vector3(1.52f, 0.02f, 0.06f), Quaternion.Euler(-6f, 0f, 0f));
-                kit(trim).Box(new Vector3(0f, g + 0.1f, half - 0.08f), new Vector3(1.45f, 0.025f, 0.22f), Quaternion.identity);
-                kit(trim).Box(new Vector3(0f, g + 0.13f, -half + 0.12f), new Vector3(1.3f, 0.05f, 0.25f), Quaternion.identity);
-                TopStripe(kit(whitePaint), d, -0.17f, -0.05f);
-                TopStripe(kit(whitePaint), d, 0.05f, 0.17f);
-                // A hint of underglow.
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    kit(neon).Box(new Vector3(side * 0.7f, g + 0.1f, 0f), new Vector3(0.03f, 0.03f, 1.8f), Quaternion.identity);
-                }
-            }
-        }
-
-        /// <summary>A point on the glasshouse surface at z and section angle theta (0 = right belt, pi = left belt).</summary>
-        private static Vector3 GreenPoint(CarDesign d, float z, float theta, float offset)
-        {
-            float height;
-            if (z < d.RearTop)
-            {
-                float t = Mathf.Clamp01((z - d.RearBase) / Mathf.Max(0.01f, d.RearTop - d.RearBase));
-                height = Mathf.Lerp(d.Belt, d.Roof, Mathf.Pow(Mathf.Sin(t * Mathf.PI * 0.5f), 0.8f));
-            }
-            else if (z > d.FrontTop)
-            {
-                float t = Mathf.Clamp01((d.FrontBase - z) / Mathf.Max(0.01f, d.FrontBase - d.FrontTop));
-                height = Mathf.Lerp(d.Belt, d.Roof, Mathf.Pow(Mathf.Sin(t * Mathf.PI * 0.5f), 0.75f));
-            }
-            else
-            {
-                height = d.Roof + 0.015f * Mathf.Sin(Mathf.InverseLerp(d.RearTop, d.FrontTop, z) * Mathf.PI);
-            }
-            float baseY = d.Belt - 0.035f;
-            float baseHalf = d.Width(z) - 0.06f;
-            float topHalf = baseHalf * d.RoofRatio;
-            float e = 2f / 3.2f;
-            float c = Mathf.Cos(theta), s = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(theta)), e);
-            float x = Mathf.Lerp(baseHalf, topHalf, s) * Mathf.Sign(c) * Mathf.Pow(Mathf.Abs(c), e);
-            float y = baseY + (height - baseY) * s;
-            Vector3 point = new Vector3(x, d.Ground + y, z);
-            if (offset != 0f)
-            {
-                Vector3 centre = new Vector3(0f, d.Ground + baseY, z);
-                Vector3 outward = (point - centre);
-                outward.z = 0f;
-                point += outward.normalized * offset;
-            }
-            return point;
-        }
-
-        private static void Pillar(MeshKit kit, CarDesign d, int side, float fromZ, float toZ, float radius)
-        {
-            Vector3 previous = Vector3.zero;
-            const int steps = 6;
-            for (int i = 0; i <= steps; i++)
-            {
-                float t = i / (float)steps;
-                float z = Mathf.Lerp(fromZ, toZ, t);
-                float theta = Mathf.Lerp(0.03f, 0.3f, t) * Mathf.PI;
-                if (side < 0) theta = Mathf.PI - theta;
-                Vector3 p = GreenPoint(d, z, theta, 0.008f);
-                if (i > 0) kit.Cylinder(previous, p, radius, radius, 6, false);
-                previous = p;
-            }
-        }
-
-        private static void WindowPanel(MeshKit kit, CarDesign d, int side, float z0, float z1)
-        {
-            float theta = side > 0 ? 0.16f * Mathf.PI : 0.84f * Mathf.PI;
-            float z = (z0 + z1) * 0.5f;
-            Vector3 low = GreenPoint(d, z, side > 0 ? 0.05f : Mathf.PI - 0.05f, 0.006f);
-            Vector3 high = GreenPoint(d, z, theta, 0.006f);
-            Vector3 centre = (low + high) * 0.5f;
-            centre.y += 0.08f;
-            kit.Box(centre, new Vector3(0.01f, Mathf.Abs(high.y - low.y) * 0.8f + 0.15f, z1 - z0), Quaternion.Euler(0f, 0f, side * -4f));
-        }
-
-        private void TopStripe(MeshKit kit, CarDesign d, float x0, float x1)
-        {
-            float half = d.Half;
-            const int steps = 40;
-            kit.Loft(steps, 4, (s, r) =>
-            {
-                float z = Mathf.Lerp(-half + 0.05f, half - 0.06f, s / (float)(steps - 1));
-                bool inGlass = z > d.RearBase && z < d.FrontBase;
-                float topY;
-                if (inGlass)
-                {
-                    // Over the roof the stripe sits on the paint; across the screens it tucks under the glass.
-                    bool onRoof = z > d.RearTop - 0.04f && z < d.FrontTop + 0.05f;
-                    topY = GreenPoint(d, z, Mathf.PI * 0.5f, onRoof ? 0.018f : -0.04f).y;
-                }
-                else
-                {
-                    topY = d.Ground + d.Top(z) + 0.004f;
-                }
-                float x = r == 0 || r == 3 ? x0 : x1;
-                float y = r < 2 ? topY + 0.001f : topY - 0.004f;
-                return new Vector3(x, y, z);
-            }, false, false);
-        }
 
         private GameObject Bumper(Transform t, string name, Vector3 centre, Vector3 size, Material paint, Material plate, bool front, float ground)
         {
@@ -524,7 +272,20 @@ namespace Crashout.Presentation
             float bottom = g + 0.36f, top = g + 2.6f;
             Vector3 size = new Vector3(2.3f, top - bottom, 7.4f);
             Vector3 centre = new Vector3(0f, (top + bottom) * 0.5f, 0f);
-            kit(paint).Append(ProceduralMeshes.RoundedBox(size, 0.2f, 3), Matrix4x4.Translate(centre));
+            for (int side = -1; side <= 1; side += 2)
+                Skin(kit(paint), 80, 10, (u, v) =>
+                {
+                    float z = Mathf.Lerp(-3.7f, 3.7f, u), low = 0.36f;
+                    foreach (float axle in new[] { -2.4f, 2.4f })
+                    {
+                        float dz = z - axle;
+                        if (Mathf.Abs(dz) < 0.56f) low = Mathf.Max(low, 0.5f + Mathf.Sqrt(0.56f * 0.56f - dz * dz));
+                    }
+                    return new Vector3(side * (1.15f - 0.055f * Mathf.Pow(v, 5f)), g + Mathf.Lerp(low, 2.6f, v), z);
+                }, Vector3.right * side);
+            Skin(kit(paint), 35, 17, (u, v) => new Vector3((v * 2f - 1f) * 1.1f, top + 0.07f * Mathf.Sin(v * Mathf.PI), Mathf.Lerp(-3.7f, 3.7f, u)), Vector3.up);
+            for (int end = -1; end <= 1; end += 2)
+                kit(paint).Append(ProceduralMeshes.RoundedBox(new Vector3(2.25f, top - bottom, 0.12f), 0.04f), Matrix4x4.Translate(new Vector3(0f, centre.y, end * 3.65f)));
             // Livery band, skirt and roof pod.
             kit(whitePaint).Box(new Vector3(0f, g + 1.0f, 0f), new Vector3(2.32f, 0.16f, 7.2f), Quaternion.identity);
             kit(trim).Box(new Vector3(0f, g + 0.42f, 0f), new Vector3(2.33f, 0.14f, 7.25f), Quaternion.identity);
@@ -573,7 +334,15 @@ namespace Crashout.Presentation
 
             // Cab-over tractor.
             Vector3 cab = new Vector3(0f, g + 1.75f, 3.08f);
-            kit(paint).Append(ProceduralMeshes.RoundedBox(new Vector3(2.3f, 2.1f, 1.7f), 0.16f, 3), Matrix4x4.Translate(cab));
+            for (int side = -1; side <= 1; side += 2)
+                Skin(kit(paint), 32, 10, (u, v) =>
+                {
+                    float z = Mathf.Lerp(2.23f, 3.93f, u), dz = z - 3f, low = 0.7f;
+                    if (Mathf.Abs(dz) < 0.57f) low = Mathf.Max(low, 0.5f + Mathf.Sqrt(0.57f * 0.57f - dz * dz));
+                    return new Vector3(side * (1.15f - 0.08f * v * v), g + Mathf.Lerp(low, 2.8f, v), z);
+                }, Vector3.right * side);
+            for (int end = -1; end <= 1; end += 2)
+                kit(paint).Append(ProceduralMeshes.RoundedBox(new Vector3(2.2f, 2.1f, 0.12f), 0.04f), Matrix4x4.Translate(cab + Vector3.forward * (end * 0.79f)));
             kit(paint).Append(ProceduralMeshes.RoundedBox(new Vector3(2.0f, 0.5f, 1.2f), 0.15f, 2), Matrix4x4.Translate(cab + new Vector3(0f, 1.25f, -0.25f)));
             kit(glass).Box(cab + new Vector3(0f, 0.45f, 0.86f), new Vector3(2.0f, 0.85f, 0.02f), Quaternion.Euler(-6f, 0f, 0f));
             kit(chrome).Box(cab + new Vector3(0f, -0.55f, 0.86f), new Vector3(1.5f, 0.6f, 0.03f), Quaternion.identity);

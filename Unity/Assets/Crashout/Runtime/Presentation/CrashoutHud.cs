@@ -23,7 +23,11 @@ namespace Crashout.Presentation
         private const float JoystickDeadzone = 0.12f;
 
         private enum Kind { Button, Soft, Pad, Icon, Hidden }
-        private enum Icon { Retry, SoundOn, SoundOff, Camera, Board, Check }
+        private enum Icon { Retry, SoundOn, SoundOff, Camera, Board, Check, Play, Pause, Restart }
+
+        private static readonly float[] ReplaySpeeds = { 0.25f, 0.5f, 1f, 2f };
+        private static readonly string[] ReplaySpeedIds = { "replay-025", "replay-05", "replay-1", "replay-2" };
+        private static readonly string[] ReplaySpeedLabels = { "0.25×", "0.5×", "1×", "2×" };
 
         private struct Popup
         {
@@ -1039,33 +1043,32 @@ namespace Crashout.Presentation
         private void DrawReplay(Frame f)
         {
             TurnReplay replay = session.Replay;
-            Label(new Rect(f.X0, f.Y0, 180f, 22f), "TURN REPLAY", displayLeft, 22, Cool);
-            Label(new Rect(f.X0, f.Y0 + 24f, 180f, 20f), "$" + replay.Score.ToString("N0") + " DAMAGE", textLeft, 13, Color.white);
-            Control("replay-close", new Rect(f.X1 - 110f, f.Y0, 110f, MinTarget), "RESULTS", Kind.Soft);
+            Label(new Rect(f.X0, f.Y0, 160f, 22f), "TURN REPLAY", displayLeft, f.Landscape ? 19 : 22, Cool);
+            Label(new Rect(f.X0, f.Y0 + 22f, 160f, 18f), "$" + replay.Score.ToString("N0") + " DAMAGE", textLeft, 11, Fade(Color.white, 0.75f));
+            Rect results = new Rect(f.X1 - 80f, f.Y0, 80f, MinTarget);
+            Control("replay-close", results, "", Kind.Hidden);
+            GUI.Box(new Rect(results.x, results.y + 6f, results.width, 32f), GUIContent.none, ghostStyle);
+            Label(results, "RESULTS", text, 11, pressed.Contains("replay-close") ? Cool : Color.white);
             if (ArMode == null || !ArMode.IsActive)
-                Control("camera", new Rect(f.X1 - 110f, f.Y0 + 50f, 110f, MinTarget), "CAMERA", Kind.Soft);
+                Control("camera", new Rect(results.x - 50f, f.Y0, MinTarget, MinTarget), "", Kind.Icon, true, icons[Icon.Camera]);
 
-            float width = Mathf.Min(f.X1 - f.X0, 520f);
-            Rect box = new Rect((f.X0 + f.X1 - width) * 0.5f, f.Y1 - 162f, width, 162f);
-            GUI.Box(box, GUIContent.none, panelStyle);
-            float x = box.x + 12f, inner = box.width - 24f;
-            Rect slider = new Rect(x + 8f, box.y + 4f, inner - 16f, MinTarget);
+            var layout = new ReplayControlsLayout(new Rect(f.X0, f.Y0, f.X1 - f.X0, f.Y1 - f.Y0), f.Landscape);
+            GUI.Box(layout.Dock, GUIContent.none, plateStyle);
+            Label(new Rect(layout.Seek.x, layout.Seek.y, layout.Seek.width * 0.5f, 18f), ReplayTime(replay.Position), textLeft, 11, Color.white);
+            Label(new Rect(layout.Seek.center.x, layout.Seek.y, layout.Seek.width * 0.5f, 18f), ReplayTime(replay.Duration), textRight, 11, Fade(Color.white, 0.55f));
             float progress = replay.Duration > 0f ? replay.Position / replay.Duration : 0f;
-            Bar(new Rect(slider.x, slider.center.y - 2f, slider.width, 4f), progress, Cool, false);
-            Tint(new Rect(slider.x + slider.width * progress - 7f, slider.center.y - 7f, 14f, 14f), knobTexture, Color.white);
-            Control("replay-seek", slider, "", Kind.Hidden);
+            Bar(layout.Track, progress, Cool, false);
+            float knob = replayScrubPointer != NoPointer ? 12f : 9f;
+            Tint(new Rect(layout.Track.x + layout.Track.width * progress - knob * 0.5f, layout.Track.center.y - knob * 0.5f, knob, knob), knobTexture, Color.white);
+            Control("replay-seek", layout.Seek, "", Kind.Hidden);
 
-            float y = box.y + 52f;
-            Control("replay-play", new Rect(x, y, 82f, MinTarget), replay.IsPlaying ? "PAUSE" : "PLAY", Kind.Soft);
-            Control("replay-start", new Rect(x + 88f, y, 72f, MinTarget), "RESTART", Kind.Soft);
-            Label(new Rect(x + 164f, y, inner - 164f, MinTarget), ReplayTime(replay.Position) + " / " + ReplayTime(replay.Duration), textRight, 12, Color.white);
-
-            float speedWidth = (inner - 18f) / 4f;
-            float[] speeds = { 0.25f, 0.5f, 1f, 2f };
-            string[] ids = { "replay-025", "replay-05", "replay-1", "replay-2" };
-            string[] labels = { "0.25×", "0.5×", "1×", "2×" };
-            for (int i = 0; i < speeds.Length; i++)
-                Control(ids[i], new Rect(x + i * (speedWidth + 6f), y + 50f, speedWidth, MinTarget), labels[i], replay.Speed == speeds[i] ? Kind.Button : Kind.Soft);
+            for (int i = 0; i < ReplaySpeeds.Length; i++)
+                DrawReplaySpeed(layout.SpeedOption(i), i, replay.Speed == ReplaySpeeds[i]);
+            Control("replay-start", layout.Restart, "", Kind.Icon, true, icons[Icon.Restart]);
+            Control("replay-play", layout.Play, "", Kind.Hidden);
+            Rect playDisc = new Rect(layout.Play.center.x - 22f, layout.Play.center.y - 22f, 44f, 44f);
+            Tint(playDisc, knobTexture, pressed.Contains("replay-play") ? Color.white : Cool);
+            Tint(new Rect(playDisc.center.x - 11f, playDisc.center.y - 11f, 22f, 22f), icons[replay.IsPlaying ? Icon.Pause : Icon.Play], Ink);
 
             Camera camera = Camera.main;
             if (camera == null) return;
@@ -1078,6 +1081,18 @@ namespace Crashout.Presentation
                 Label(new Rect(screen.x / scale - 180f, (Screen.height - screen.y) / scale - age * 40f, 360f, 40f),
                     cue.Text, display, 26, Fade(Hot, Mathf.Clamp01((1.6f - age) * 2.5f)));
             }
+        }
+
+        private void DrawReplaySpeed(Rect target, int index, bool selected)
+        {
+            string id = ReplaySpeedIds[index];
+            Control(id, target, "", Kind.Hidden);
+            Color colour = selected || pressed.Contains(id) ? Cool : Fade(Color.white, 0.6f);
+            if (selected)
+                Tint(new Rect(target.x + 1f, target.y + 8f, target.width - 2f, 28f), chipTexture, Fade(Cool, 0.45f));
+            Rect dot = new Rect(target.x + 4f, target.center.y - 3f, 6f, 6f);
+            Tint(dot, selected ? knobTexture : ringTexture, colour);
+            Label(new Rect(target.x + 10f, target.y, target.width - 10f, target.height), ReplaySpeedLabels[index], text, 11, colour);
         }
 
         private void Stat(float x, float y, float width, string label, string value, Color colour)
@@ -1230,7 +1245,7 @@ namespace Crashout.Presentation
             chevronRight = MakeChevron(64, 1);
             chevronDown = MakeChevron(64, 2);
             chevronLeft = MakeChevron(64, 3);
-            foreach (Icon icon in new[] { Icon.Retry, Icon.SoundOn, Icon.SoundOff, Icon.Camera, Icon.Board, Icon.Check })
+            foreach (Icon icon in new[] { Icon.Retry, Icon.SoundOn, Icon.SoundOff, Icon.Camera, Icon.Board, Icon.Check, Icon.Play, Icon.Pause, Icon.Restart })
             {
                 icons[icon] = MakeIcon(icon);
             }
@@ -1427,6 +1442,14 @@ namespace Crashout.Presentation
         {
             switch (icon)
             {
+                case Icon.Play:
+                    return Polygon(p, new[] { new Vector2(0.3f, 0.18f), new Vector2(0.3f, 0.82f), new Vector2(0.83f, 0.5f) });
+                case Icon.Pause:
+                    return Mathf.Min(Box(p, new Vector2(0.35f, 0.5f), new Vector2(0.075f, 0.29f), 0.015f),
+                        Box(p, new Vector2(0.65f, 0.5f), new Vector2(0.075f, 0.29f), 0.015f));
+                case Icon.Restart:
+                    return Mathf.Min(Box(p, new Vector2(0.24f, 0.5f), new Vector2(0.045f, 0.28f), 0.01f),
+                        Polygon(p, new[] { new Vector2(0.76f, 0.2f), new Vector2(0.76f, 0.8f), new Vector2(0.32f, 0.5f) }));
                 case Icon.Retry:
                 {
                     Vector2 c = new Vector2(0.5f, 0.5f);

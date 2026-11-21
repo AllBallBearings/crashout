@@ -83,6 +83,17 @@ namespace Crashout.Presentation
         public event Action<StructureHit> Hit;
 
         public int ScarCount => scars.Count;
+
+        /// <summary>Names and positions of the props that have broken, for test diagnostics.</summary>
+        public string DescribeBrokenProps()
+        {
+            var parts = new List<string>();
+            foreach (BreakableProp prop in props)
+            {
+                if (prop != null && prop.Broken) parts.Add(prop.name + " at " + prop.transform.position.ToString("F1"));
+            }
+            return string.Join(", ", parts);
+        }
         public int BrokenWindowCount => brokenWindows;
         public int BrokenPropCount
         {

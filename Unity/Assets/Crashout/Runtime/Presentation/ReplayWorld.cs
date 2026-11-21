@@ -194,6 +194,81 @@ namespace Crashout.Presentation
             }
         }
 
+        private const float MaxTrailSegment = 25f;
+        private Vector3[] trailPoints = new Vector3[64];
+        private readonly List<Vector2> ribbonUvs = new List<Vector2>();
+        private readonly List<Color> ribbonColours = new List<Color>();
+        private readonly List<int> ribbonTriangles = new List<int>();
+
+        /// <summary>
+        /// Builds a skid trail's replay mesh from its points: a ribbon lying flat on the road, the way
+        /// the live skid (aligned to its upward-facing emitter) draws, with the trail's width curve,
+        /// colour gradient and tiled texture, so it matches the live mark. Built here
+        /// rather than with TrailRenderer.BakeMesh, which intermittently asserts ("Converting invalid
+        /// MinMaxAABB") and returns an empty mesh. Returns null when the points cannot form a ribbon:
+        /// collapsed onto one spot, not finite, or stretched across a teleport.
+        /// </summary>
+        private Mesh BuildSkidRibbon(TrailRenderer trail)
+        {
+            int count = trail.positionCount;
+            float halfWidth = trail.widthMultiplier * 0.5f;
+            if (count < 2 || !(halfWidth > 0f)) return null;
+            if (trailPoints.Length < count) trailPoints = new Vector3[Mathf.NextPowerOfTwo(count)];
+            trail.GetPositions(trailPoints);
+            float length = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 p = trailPoints[i];
+                if (!float.IsFinite(p.x) || !float.IsFinite(p.y) || !float.IsFinite(p.z)) return null;
+                if (i == 0) continue;
+                float segment = Vector3.Distance(p, trailPoints[i - 1]);
+                // Longer than any car covers between samples: the car was moved, not driven.
+                if (segment > MaxTrailSegment) return null;
+                length += segment;
+            }
+            if (length < 0.01f) return null;
+
+            meshVertices.Clear();
+            ribbonUvs.Clear();
+            ribbonColours.Clear();
+            ribbonTriangles.Clear();
+            bool tile = trail.textureMode == LineTextureMode.Tile || trail.textureMode == LineTextureMode.RepeatPerSegment;
+            float tiling = trail.textureScale.x;
+            float along = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 previous = trailPoints[Mathf.Max(0, i - 1)];
+                Vector3 next = trailPoints[Mathf.Min(count - 1, i + 1)];
+                Vector3 direction = Vector3.ProjectOnPlane(next - previous, Vector3.up);
+                if (direction.sqrMagnitude < 1e-8f) direction = Vector3.forward;
+                if (i > 0) along += Vector3.Distance(trailPoints[i], trailPoints[i - 1]);
+                // Points run oldest first; the trail's curves run from its head (newest, t = 0) to its tail.
+                float t = 1f - along / length;
+                Vector3 side = Vector3.Cross(Vector3.up, direction.normalized) * (halfWidth * trail.widthCurve.Evaluate(t));
+                float u = tile ? along * tiling : along / length;
+                Color colour = trail.colorGradient.Evaluate(t);
+                Vector3 centre = trailPoints[i] + Vector3.up * 0.005f;
+                meshVertices.Add(centre - side);
+                meshVertices.Add(centre + side);
+                ribbonUvs.Add(new Vector2(u, 0f));
+                ribbonUvs.Add(new Vector2(u, 1f));
+                ribbonColours.Add(colour);
+                ribbonColours.Add(colour);
+                if (i == 0) continue;
+                int a = (i - 1) * 2, b = a + 1, c = a + 2, d = a + 3;
+                ribbonTriangles.Add(a); ribbonTriangles.Add(c); ribbonTriangles.Add(b);
+                ribbonTriangles.Add(b); ribbonTriangles.Add(c); ribbonTriangles.Add(d);
+            }
+            Mesh mesh = new Mesh { name = "Replay skid" };
+            mesh.SetVertices(meshVertices);
+            mesh.SetUVs(0, ribbonUvs);
+            mesh.SetColors(ribbonColours);
+            mesh.SetTriangles(ribbonTriangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         private void CaptureGeometry(Geometry item, float time)
         {
             if (item.Ended) return;
@@ -205,17 +280,9 @@ namespace Crashout.Presentation
             {
                 view.Pose = Pose.Read(source.transform);
                 if (item.Filter != null) view.Mesh = CopyMesh(item.Filter);
-                else if (source is TrailRenderer trail && trail.positionCount > 1 && (trail.emitting || trail.positionCount != item.TrailPoints) && Camera.main != null)
+                else if (source is TrailRenderer trail && trail.positionCount > 1 && (trail.emitting || trail.positionCount != item.TrailPoints)
+                    && BuildSkidRibbon(trail) is Mesh mesh)
                 {
-                    // Skid trails use TransformZ alignment: their baked mesh remains valid from any AR angle.
-                    Mesh mesh = new Mesh { name = "Replay skid" };
-                    trail.BakeMesh(mesh, Camera.main, false);
-                    meshVertices.Clear();
-                    mesh.GetVertices(meshVertices);
-                    for (int i = 0; i < meshVertices.Count; i++) meshVertices[i] = trail.transform.TransformPoint(meshVertices[i]);
-                    mesh.SetVertices(meshVertices);
-                    mesh.RecalculateNormals();
-                    mesh.RecalculateBounds();
                     view.Mesh = mesh;
                     bakedMeshes.Add(mesh);
                     item.TrailPoints = trail.positionCount;

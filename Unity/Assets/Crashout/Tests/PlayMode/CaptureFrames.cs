@@ -20,7 +20,7 @@ namespace Crashout.Tests
         private const int Height = 720;
 
         [UnityTest, Timeout(180000)]
-        public IEnumerator CaptureEveryJunction([Values(0, 1, 2)] int scenarioIndex)
+        public IEnumerator CaptureEveryJunction([Values(0, 1, 2, 3)] int scenarioIndex)
         {
             string directory = System.Environment.GetEnvironmentVariable("CRASHOUT_CAPTURE_DIR");
             if (string.IsNullOrEmpty(directory))

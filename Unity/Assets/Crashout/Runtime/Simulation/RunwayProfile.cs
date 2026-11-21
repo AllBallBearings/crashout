@@ -7,7 +7,8 @@ namespace Crashout.Simulation
     {
         Hilltop,
         Overpass,
-        MountainPass
+        MountainPass,
+        Pier
     }
 
     /// <summary>

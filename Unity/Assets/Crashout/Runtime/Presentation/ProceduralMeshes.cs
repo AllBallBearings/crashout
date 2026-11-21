@@ -11,6 +11,8 @@ namespace Crashout.Presentation
     {
         private static readonly Dictionary<(Vector3Int, int), Mesh> Cache = new Dictionary<(Vector3Int, int), Mesh>();
 
+        public static bool IsShared(Mesh mesh) => Cache.ContainsValue(mesh);
+
         public static Mesh RoundedBox(Vector3 size, float radius, int segments = 3)
         {
             radius = Mathf.Min(radius, Mathf.Min(size.x, Mathf.Min(size.y, size.z)) * 0.5f - 0.001f);

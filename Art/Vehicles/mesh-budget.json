@@ -1,0 +1,51 @@
+[
+  {
+    "file": "Player.bytes",
+    "vertices": 32510,
+    "triangles": 57636,
+    "draws": 39,
+    "bytes": 1733283
+  },
+  {
+    "file": "Sedan.bytes",
+    "vertices": 33112,
+    "triangles": 58400,
+    "draws": 49,
+    "bytes": 1762080
+  },
+  {
+    "file": "Hatch.bytes",
+    "vertices": 31634,
+    "triangles": 55444,
+    "draws": 49,
+    "bytes": 1679312
+  },
+  {
+    "file": "Van.bytes",
+    "vertices": 32330,
+    "triangles": 58060,
+    "draws": 45,
+    "bytes": 1732824
+  },
+  {
+    "file": "Pickup.bytes",
+    "vertices": 32446,
+    "triangles": 57296,
+    "draws": 39,
+    "bytes": 1727154
+  },
+  {
+    "file": "Bus.bytes",
+    "vertices": 23794,
+    "triangles": 38624,
+    "draws": 10,
+    "bytes": 1225226
+  },
+  {
+    "file": "Tanker.bytes",
+    "vertices": 20532,
+    "triangles": 37576,
+    "draws": 12,
+    "bytes": 1108331
+  }
+]

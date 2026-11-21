@@ -15,12 +15,14 @@ namespace Crashout.Bootstrap
         private ArcadeVehicleController player;
         private ResettableBody playerReset;
         private int scenarioIndex;
-        // Lanes loop 34 m out (the schedules are tuned to that period), but cars drop out of sight
-        // 24 m out, inside the portal buildings on the board's edges, and re-emerge from the far portal.
+        // Lanes loop 34 m out (the schedules are tuned to that period), but cars vanish as they
+        // drive off the board's edge, as through an invisible portal, and re-emerge from the far edge.
         private const float LoopExtent = 34f;
-        private const float VisibleExtent = 24f;
+        private const float VisibleExtent = 25.2f;
         private CrashoutArt art;
         private Transform city;
+        private BoardStyle boardStyle = BoardStyle.City;
+        private bool boardTabletop;
         private Transform runwayWorld;
         private PhysicsMaterial rollingContact;
         private Destruction destruction;
@@ -45,7 +47,8 @@ namespace Crashout.Bootstrap
             // Created before the city so buildings and street furniture can register for damage.
             destruction = gameObject.AddComponent<Destruction>();
             art.ApplyAtmosphere(transform, useAr);
-            city = art.BuildCity(transform, useAr);
+            boardTabletop = useAr;
+            city = art.BuildCity(transform, useAr, boardStyle);
             art.InstallReflections(transform);
 
             session = gameObject.AddComponent<CrashoutGameSession>();
@@ -88,7 +91,7 @@ namespace Crashout.Bootstrap
             car.transform.rotation = Quaternion.identity;
             Rigidbody body = car.AddComponent<Rigidbody>();
             BoxCollider collider = car.AddComponent<BoxCollider>();
-            collider.size = new Vector3(1.55f, 0.56f, 3.15f);
+            collider.size = new Vector3(1.75f, 0.56f, 4.12f);
             car.layer = 8;
 
             ArcadeVehicleController controller = car.AddComponent<ArcadeVehicleController>();
@@ -119,9 +122,15 @@ namespace Crashout.Bootstrap
             trafficObjects.Clear();
             vehicles.RemoveAll(v => v == null || !v.IsPlayerVehicle);
 
+            if (scenario.Board != boardStyle)
+            {
+                boardStyle = scenario.Board;
+                RebuildBoard();
+            }
+
             // Each junction brings its own approach road and landscape, far outside the board.
             if (runwayWorld != null) Destroy(runwayWorld.gameObject);
-            runwayWorld = art.BuildRunway(transform, scenario.Runway);
+            runwayWorld = art.BuildRunway(transform, scenario.Runway, city.GetComponentInChildren<RoadSurface>());
             playerReset.SetStartPose(scenario.PlayerStart, Quaternion.identity);
 
             uint targetId = 0;
@@ -188,11 +197,23 @@ namespace Crashout.Bootstrap
         // AR is unavailable here, so put the diorama on the virtual display floor under a virtual sky.
         private void UseVirtualWorld()
         {
-            destruction.Clear();
-            if (city != null) Destroy(city.gameObject);
-            city = art.BuildCity(transform, false);
+            boardTabletop = false;
+            RebuildBoard();
             art.EnableVirtualSky(transform);
             art.RefreshReflections();
+        }
+
+        /// <summary>Swaps the diorama on the board: the downtown block or the harbor.</summary>
+        private void RebuildBoard()
+        {
+            destruction.Clear();
+            if (city != null)
+            {
+                // Deactivate first so the old colliders are gone before the new board's props settle.
+                city.gameObject.SetActive(false);
+                Destroy(city.gameObject);
+            }
+            city = art.BuildCity(transform, boardTabletop, boardStyle);
         }
 
         private void OnDestroy()
