@@ -11,7 +11,7 @@ namespace Crashout.Tests
     public class CrashModeTests
     {
         [UnityTest]
-        public IEnumerator EveryScenarioProducesAChainReactionWithCrashbreaker([Values(0, 1, 2)] int scenarioIndex)
+        public IEnumerator EveryScenarioProducesAChainReactionWithCrashbreaker([Values(0, 1, 2, 3)] int scenarioIndex)
         {
             yield return null;
             var session = Object.FindFirstObjectByType<CrashoutGameSession>();

@@ -34,7 +34,6 @@ namespace Crashout.Presentation
 
         // Shared surfaces.
         private readonly Material asphalt;
-        private readonly Material roadPainted;
         private readonly Material paving;
         private readonly Material concrete;
         private readonly Material concreteDark;
@@ -103,7 +102,6 @@ namespace Crashout.Presentation
             complexShader = Shader.Find("Universal Render Pipeline/Complex Lit");
 
             ProceduralTextures.SurfaceSet asphaltSet = ProceduralTextures.Asphalt();
-            ProceduralTextures.SurfaceSet roadSet = ProceduralTextures.PaintedRoad();
             ProceduralTextures.SurfaceSet pavingSet = ProceduralTextures.Paving();
             ProceduralTextures.SurfaceSet concreteSet = ProceduralTextures.Concrete();
             ProceduralTextures.SurfaceSet rockSet = ProceduralTextures.Rock();
@@ -113,7 +111,6 @@ namespace Crashout.Presentation
             groundDetail = ProceduralTextures.GroundDetail();
 
             asphalt = Surface("Asphalt", asphaltSet, 4f, Color.white, 1f, 0.9f);
-            roadPainted = Surface("Runway road", roadSet, 1f, Color.white, 1f, 0.9f);
             paving = Surface("Paving", pavingSet, 3f, Color.white, 1f, 0.8f);
             concrete = Surface("Concrete", concreteSet, 4f, new Color(1f, 0.98f, 0.95f), 1f, 0.8f);
             concreteDark = Surface("Concrete dark", concreteSet, 4f, new Color(0.62f, 0.62f, 0.62f), 1f, 0.8f);
@@ -174,8 +171,16 @@ namespace Crashout.Presentation
             signGreen = Lit("Road sign", new Color(0.02f, 0.28f, 0.14f), 0.1f, 0.6f);
             Emissive(signGreen, new Color(0.02f, 0.06f, 0.03f));
 
-            glass = Lit("Car glass", new Color(0.015f, 0.022f, 0.03f), 0.3f, 0.97f);
+            glass = Lit("Car glass", new Color(0.065f, 0.1f, 0.12f, 0.62f), 0.15f, 0.94f);
+            glass.SetFloat("_Surface", 1f);
+            glass.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            glass.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            glass.SetFloat("_ZWrite", 0f);
+            glass.SetFloat("_Cull", 0f);
+            glass.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            glass.renderQueue = (int)RenderQueue.Transparent;
             shatteredGlass = Surface("Shattered glass", ProceduralTextures.CrazedGlass(), 1.3f, Color.white, 1f, 1.2f);
+            shatteredGlass.SetFloat("_Cull", 0f);
             alloy = Lit("Alloy", new Color(0.78f, 0.79f, 0.81f), 1f, 0.78f);
             chrome = Lit("Chrome", new Color(0.92f, 0.92f, 0.93f), 1f, 0.94f);
             trim = Lit("Trim", new Color(0.025f, 0.025f, 0.028f), 0f, 0.42f);
@@ -227,13 +232,13 @@ namespace Crashout.Presentation
 
         private static Material Paint(Color colour, bool metallic, string name)
         {
-            Material material = new Material(complexShader != null ? complexShader : litShader) { name = name, color = colour };
+            Shader automotive = Resources.Load<Shader>("Shaders/AutomotivePaint");
+            Material material = new Material(automotive != null ? automotive : complexShader != null ? complexShader : litShader) { name = name };
             material.SetColor("_BaseColor", colour);
             material.SetFloat("_Metallic", metallic ? 0.6f : 0.05f);
-            material.SetFloat("_Smoothness", metallic ? 0.68f : 0.58f);
-            if (complexShader != null)
+            material.SetFloat("_Smoothness", metallic ? 0.74f : 0.68f);
+            if (material.HasProperty("_ClearCoatMask"))
             {
-                material.SetFloat("_ClearCoat", 1f);
                 material.SetFloat("_ClearCoatMask", 1f);
                 material.SetFloat("_ClearCoatSmoothness", 0.94f);
                 material.EnableKeyword("_CLEARCOAT");
@@ -389,14 +394,14 @@ namespace Crashout.Presentation
 
             Bloom bloom = profile.Add<Bloom>(true);
             bloom.threshold.Override(1.1f);
-            bloom.intensity.Override(0.42f);
+            bloom.intensity.Override(0.18f);
             bloom.scatter.Override(0.72f);
             bloom.tint.Override(new Color(1f, 0.93f, 0.86f));
             bloom.highQualityFiltering.Override(!tabletop);
             if (!tabletop)
             {
                 bloom.dirtTexture.Override(ProceduralTextures.LensDirt());
-                bloom.dirtIntensity.Override(1.2f);
+                bloom.dirtIntensity.Override(0.15f);
             }
 
             Tonemapping tonemapping = profile.Add<Tonemapping>(true);

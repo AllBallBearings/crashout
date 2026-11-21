@@ -30,6 +30,7 @@ namespace Crashout.Presentation
         private bool glassBroken;
 
         public Material Paint => paint;
+        public Material ShatteredGlass => shattered;
         public float HalfLength { get; private set; }
 
         public void Configure(Material paintMaterial, Material tail, Material hazard, Renderer[] glass, Material shatteredGlass, float halfLength)

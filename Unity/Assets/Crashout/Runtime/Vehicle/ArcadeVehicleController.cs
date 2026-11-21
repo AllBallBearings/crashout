@@ -8,10 +8,10 @@ namespace Crashout.Vehicle
     {
         private static readonly Vector3[] WheelLocalPositions =
         {
-            new Vector3(-0.72f, -0.1f, 1.18f),
-            new Vector3(0.72f, -0.1f, 1.18f),
-            new Vector3(-0.72f, -0.1f, -1.18f),
-            new Vector3(0.72f, -0.1f, -1.18f)
+            new Vector3(-0.8f, -0.1f, 1.3f),
+            new Vector3(0.8f, -0.1f, 1.3f),
+            new Vector3(-0.8f, -0.1f, -1.3f),
+            new Vector3(0.8f, -0.1f, -1.3f)
         };
 
         [SerializeField] private float motorForce = 6200f;
@@ -288,6 +288,7 @@ namespace Crashout.Vehicle
             {
                 foreach (Transform pivot in frontWheelPivots)
                 {
+                    if (!pivot.IsChildOf(transform)) continue;
                     pivot.localRotation = Quaternion.Euler(0f, steeringVisual, 0f);
                 }
             }
@@ -296,6 +297,7 @@ namespace Crashout.Vehicle
             float rollDegrees = forwardSpeed * Time.fixedDeltaTime / WheelRadius * Mathf.Rad2Deg;
             foreach (Transform pivot in wheelRollPivots)
             {
+                if (!pivot.IsChildOf(transform)) continue;
                 pivot.Rotate(Vector3.right, rollDegrees, Space.Self);
             }
         }

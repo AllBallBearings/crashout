@@ -19,17 +19,25 @@ namespace Crashout.Presentation
 
         private Mesh[] conifers;
 
-        public Transform BuildRunway(Transform parent, RunwayProfile runway)
+        public Transform BuildRunway(Transform parent, RunwayProfile runway, RoadSurface road = null)
         {
             Transform root = new GameObject("Runway " + runway.Title).transform;
             root.SetParent(parent, false);
+            if (road == null)
+            {
+                GameObject surface = new GameObject("Road surface");
+                surface.transform.SetParent(root, false);
+                surface.AddComponent<RoadSurface>().Configure(asphalt, runway);
+            }
+            else road.SetRunway(runway);
             if (runway.DistanceBeyondBoard < 1f) return root;
 
             List<float> zs = Samples(runway);
             BuildRoadDeck(root, runway, zs);
             BuildBarriers(root, runway, zs);
             BuildStartLine(root, runway);
-            BuildGantry(root, runway, -58f);
+            bool pier = runway.Style == RunwayStyle.Pier;
+            if (!pier) BuildGantry(root, runway, -58f);
             if (runway.HasRamp) BuildRamp(root, runway);
 
             switch (runway.Style)
@@ -40,6 +48,10 @@ namespace Crashout.Presentation
                 case RunwayStyle.MountainPass:
                     BuildTunnel(root, runway);
                     break;
+                case RunwayStyle.Pier:
+                    // Water, not land: the pier, ferry and cranes replace the terrain arm.
+                    BuildPier(root, runway);
+                    return root;
             }
 
             BuildArm(root, runway);
@@ -64,18 +76,7 @@ namespace Crashout.Presentation
 
         private void BuildRoadDeck(Transform root, RunwayProfile runway, List<float> zs)
         {
-            var left = new List<Vector3>();
-            var right = new List<Vector3>();
-            foreach (float z in zs)
-            {
-                left.Add(RoadPoint(runway, -RoadHalf, z));
-                right.Add(RoadPoint(runway, RoadHalf, z));
-            }
-            var surface = new MeshKit();
-            surface.Strip(left, right, Vector3.up, 1f / 14.4f);
-            Mesh roadMesh = surface.ToMesh("Runway surface");
-            GameObject road = MeshKit.Spawn(root, "Runway surface", roadMesh, roadPainted, false, true);
-            road.isStatic = true;
+            BuildRunwayMarkings(root, runway, zs);
 
             // Drivable shoulders under the kerbs: without them a wheel hugging the barrier drops into the
             // carved verge and the tilted car snags the city kerb at the board edge.
@@ -131,6 +132,39 @@ namespace Crashout.Presentation
             fascia.Strip(underside, undersideRight, Vector3.down, 0.25f, 11.4f);
             MeshKit.Spawn(root, "Runway kerbs", kerbs.ToMesh("Runway kerbs"), concrete);
             MeshKit.Spawn(root, "Runway deck", fascia.ToMesh("Runway deck"), concreteDark);
+        }
+
+        private void BuildRunwayMarkings(Transform root, RunwayProfile runway, List<float> zs)
+        {
+            var white = new MeshKit();
+            var yellow = new MeshKit();
+            void Line(MeshKit kit, float x, float width, IList<float> samples)
+            {
+                var left = new List<Vector3>();
+                var right = new List<Vector3>();
+                foreach (float z in samples)
+                {
+                    left.Add(RoadPoint(runway, x - width * 0.5f, z, 0.012f));
+                    right.Add(RoadPoint(runway, x + width * 0.5f, z, 0.012f));
+                }
+                kit.Strip(left, right, Vector3.up, 1f);
+            }
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Line(white, side * 4.55f, 0.14f, zs);
+                Line(yellow, side * 0.12f, 0.11f, zs);
+                // Continue the board's dash spacing across the join, conforming to the downhill grade.
+                float first = RunwayProfile.BoardEdgeZ + Mathf.Floor((runway.FarZ - RunwayProfile.BoardEdgeZ) / 3.6f) * 3.6f;
+                for (float z = first; z <= RunwayProfile.BoardEdgeZ; z += 3.6f)
+                {
+                    float start = Mathf.Max(runway.FarZ, z - 0.9f);
+                    float end = Mathf.Min(RunwayProfile.BoardEdgeZ, z + 0.9f);
+                    if (end <= start) continue;
+                    Line(white, side * 2.5f, 0.12f, new[] { start, (start + end) * 0.5f, end });
+                }
+            }
+            MeshKit.Spawn(root, "Runway white markings", white.ToMesh("Runway white markings"), whitePaint, false);
+            MeshKit.Spawn(root, "Runway centre lines", yellow.ToMesh("Runway centre lines"), lanePaint, false);
         }
 
         private void BuildBarriers(Transform root, RunwayProfile runway, List<float> zs)

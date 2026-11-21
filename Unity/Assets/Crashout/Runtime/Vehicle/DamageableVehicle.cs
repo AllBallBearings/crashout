@@ -20,6 +20,8 @@ namespace Crashout.Vehicle
         public int ScoreCap => scoreCap;
         public float Damage => damage;
         public VehicleClass Class => vehicleClass;
+        public Vector3 LastImpactPoint { get; private set; }
+        public Vector3 LastImpactNormal { get; private set; } = Vector3.up;
         public Rigidbody Body => body != null ? body : (body = GetComponent<Rigidbody>());
 
         private void Awake()
@@ -39,7 +41,11 @@ namespace Crashout.Vehicle
         public void ResetDamage()
         {
             damage = 0f;
+            GetComponent<Crashout.Presentation.VehicleDeformer>()?.RestoreVehicle();
         }
+
+        public void ReportFragmentCollision(Collision collision) => OnCollisionEnter(collision);
+        public void ReportStructuralFailure() => session?.ReportStructuralFailure(this);
 
         public EntitySnapshot Capture(uint hostTick)
         {
@@ -62,13 +68,17 @@ namespace Crashout.Vehicle
         private void OnCollisionEnter(Collision collision)
         {
             if (session == null || !session.IsAuthority) return;
+            VehicleImpact impact = VehicleImpact.Read(collision);
+            if (impact.IsRoutineRoadContact) return;
+            LastImpactPoint = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
+            LastImpactNormal = impact.Normal;
             DamageableVehicle other = collision.collider.GetComponentInParent<DamageableVehicle>();
             uint otherId = other == null ? 0u : other.EntityId;
             float impulse = collision.impulse.magnitude / 1000f;
-            float relativeSpeed = collision.relativeVelocity.magnitude;
-            damage += impulse * 0.04f + relativeSpeed * 0.6f;
-            Vector3 normal = collision.contactCount > 0 ? collision.GetContact(0).normal : Vector3.zero;
-            session.ReportVehicleCollision(this, otherId, impulse, relativeSpeed, normal);
+            float relativeSpeed = impact.Speed;
+            float transfer = Mathf.Clamp01(collision.impulse.magnitude / Mathf.Max(1f, Body.mass * relativeSpeed * 0.15f));
+            damage += impulse * 0.04f + relativeSpeed * 0.6f * transfer;
+            session.ReportVehicleCollision(this, otherId, impulse, relativeSpeed, impact.Normal);
         }
     }
 }

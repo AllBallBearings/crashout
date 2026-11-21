@@ -8,6 +8,18 @@ namespace Crashout.Tests
     {
         private const float BoardLength = RunwayProfile.BoardHalfExtent * 2f;
 
+        [TestCase(0, -124f, 33f, 16f)]
+        [TestCase(1, -118f, 56f, 9f)]
+        [TestCase(2, -129f, 19.5f, 13f)]
+        [TestCase(3, -126f, 13f, 8f)]
+        public void RoadBehindTheStartIsHalvedWithoutMovingTheLaunch(int index, float startZ, float tail, float height)
+        {
+            RunwayProfile runway = CrashScenarios.Create(index).Runway;
+            Assert.That(runway.StartZ, Is.EqualTo(startZ));
+            Assert.That(runway.StartZ - runway.FarZ, Is.EqualTo(tail));
+            Assert.That(runway.StartHeight, Is.EqualTo(height).Within(0.001f));
+        }
+
         [Test]
         public void EveryJunctionLaunchesFromOneToTwoBoardLengthsOutAndAboveTheBoard()
         {

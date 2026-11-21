@@ -25,14 +25,25 @@ namespace Crashout.Presentation
         /// except each junction's runway arm. On the AR table the real table is the floor; elsewhere a
         /// dark display floor stands in for it.
         /// </summary>
-        public Transform BuildCity(Transform parent, bool tabletop = false)
+        public Transform BuildCity(Transform parent, bool tabletop = false, BoardStyle style = BoardStyle.City)
         {
+            bool port = style == BoardStyle.Port;
             float reach = RunwayProfile.BoardHalfExtent;
             float south = RunwayProfile.BoardHalfExtent;
             Transform root = new GameObject("City").transform;
             root.SetParent(parent, false);
 
-            Slab(root, "Ground", new Vector3(0f, -0.2f, 0f), new Vector3(52f, 0.3f, 52f), 0.08f, ground, true);
+            if (port)
+            {
+                // The south band is open water either side of the pier road, so the ground stops at the quay.
+                float quay = -QuayEdgeZ;
+                Slab(root, "Ground", new Vector3(0f, -0.2f, (reach - quay) * 0.5f), new Vector3(52f, 0.3f, reach + quay), 0.08f, ground, true);
+                Slab(root, "Ground", new Vector3(0f, -0.2f, -(reach + quay) * 0.5f), new Vector3(13f, 0.3f, reach - quay), 0.08f, ground, true);
+            }
+            else
+            {
+                Slab(root, "Ground", new Vector3(0f, -0.2f, 0f), new Vector3(52f, 0.3f, 52f), 0.08f, ground, true);
+            }
             // A bevelled plinth so the board reads as a premium diorama.
             Slab(root, "Board plinth", new Vector3(0f, (PlinthTop + DioramaBase) * 0.5f, 0f), new Vector3(53.2f, PlinthTop - DioramaBase, 53.2f), 0.4f, darkMetal, false);
             if (!tabletop)
@@ -41,16 +52,16 @@ namespace Crashout.Presentation
                 floor.isStatic = true;
             }
 
-            float northLength = reach + south;
-            Slab(root, "North / South road", new Vector3(0f, 0f, (reach - south) * 0.5f), new Vector3(10f, 0.08f, northLength), 0.02f, asphalt, true);
-            Slab(root, "East / West road", new Vector3(0f, 0.01f, 0f), new Vector3(reach * 2f, 0.08f, 10f), 0.02f, asphalt, true);
+            GameObject road = new GameObject("Road surface");
+            road.transform.SetParent(root, false);
+            road.AddComponent<RoadSurface>().Configure(asphalt);
 
             float sidewalkFar = reach;
             for (int sx = -1; sx <= 1; sx += 2)
             {
                 for (int sz = -1; sz <= 1; sz += 2)
                 {
-                    float zFar = sz < 0 ? south : sidewalkFar;
+                    float zFar = sz < 0 ? (port ? -QuayEdgeZ : south) : sidewalkFar;
                     float sizeX = sidewalkFar - 5f, sizeZ = zFar - 5f;
                     Slab(root, "Sidewalk", new Vector3(sx * (5f + sizeX * 0.5f), 0f, sz * (5f + sizeZ * 0.5f)),
                         new Vector3(sizeX, 0.2f, sizeZ), 0.05f, paving, true);
@@ -61,9 +72,16 @@ namespace Crashout.Presentation
             }
 
             BuildRoadMarkings(root, reach, south);
-            BuildCornerBlocks(root);
-            BuildBoardBlocks(root);
-            BuildStreetFurniture(root);
+            if (port)
+            {
+                BuildPortBoard(root);
+            }
+            else
+            {
+                BuildCornerBlocks(root);
+                BuildBoardBlocks(root);
+                BuildStreetFurniture(root);
+            }
             BuildSignals(root);
 
             BuildRoadWear(root);
@@ -85,10 +103,12 @@ namespace Crashout.Presentation
             for (float d = -reach; d <= reach; d += 3.6f)
             {
                 if (Mathf.Abs(d) < 10.8f) continue;
-                if (d > -south + 1f)
+                if (d + 0.9f > -south)
                 {
-                    Decal(root, "Lane mark", new Vector3(-2.5f, 0.052f, d), new Vector3(0.12f, 0.012f, 1.8f), whitePaint);
-                    Decal(root, "Lane mark", new Vector3(2.5f, 0.052f, d), new Vector3(0.12f, 0.012f, 1.8f), whitePaint);
+                    float start = Mathf.Max(-south, d - 0.9f), end = Mathf.Min(reach, d + 0.9f);
+                    float centre = (start + end) * 0.5f;
+                    Decal(root, "Lane mark", new Vector3(-2.5f, 0.052f, centre), new Vector3(0.12f, 0.012f, end - start), whitePaint);
+                    Decal(root, "Lane mark", new Vector3(2.5f, 0.052f, centre), new Vector3(0.12f, 0.012f, end - start), whitePaint);
                 }
                 Decal(root, "Lane mark", new Vector3(d, 0.062f, -2.5f), new Vector3(1.8f, 0.012f, 0.12f), whitePaint);
                 Decal(root, "Lane mark", new Vector3(d, 0.062f, 2.5f), new Vector3(1.8f, 0.012f, 0.12f), whitePaint);
@@ -143,7 +163,7 @@ namespace Crashout.Presentation
 
         private void BuildCornerBlocks(Transform root)
         {
-            float[] heights = { 14f, 19f, 12.5f, 16.5f };
+            float[] heights = CityHeights.Active.Corner;
             int index = 0;
             var shopWindows = new MeshKit();
             var cornerDetail = new BatchedMeshes();
@@ -330,7 +350,6 @@ namespace Crashout.Presentation
         private const float EdgeCentre = 23.1f;
         private const float EdgeDepth = 5.8f;
         private const float PortalHalfWidth = 5.3f;
-        private const float PortalHeight = 5.8f;
 
         /// <summary>
         /// Fills the board out to its edges: street frontages, an inner block in each quadrant, portal
@@ -340,8 +359,9 @@ namespace Crashout.Presentation
         private void BuildBoardBlocks(Transform root)
         {
             var detail = new BatchedMeshes();
-            float[] frontHeights = { 15f, 11.5f, 18f, 13f, 12f, 16.5f, 14f, 10.5f };
-            float[] innerHeights = { 22f, 36f, 27f, 18f };
+            CityHeights profile = CityHeights.Active;
+            float[] frontHeights = profile.Frontage;
+            float[] innerHeights = profile.Inner;
             int f = 0, quadrant = 0;
             for (int sx = -1; sx <= 1; sx += 2)
             {
@@ -351,14 +371,14 @@ namespace Crashout.Presentation
                     f++;
                     Block(root, detail, new Vector3(sx * FrontageAlong, 0f, sz * FrontageCentre), new Vector3(FrontageDepth, frontHeights[f], FrontageWidth), 200 + f, false);
                     f++;
-                    bool glass = quadrant == 1 || quadrant == 2;
+                    bool glass = profile.GlassTowers && (quadrant == 1 || quadrant == 2);
                     Block(root, detail, new Vector3(sx * InnerCentre, 0f, sz * InnerCentre), new Vector3(InnerSize, innerHeights[quadrant], InnerSize), 240 + quadrant, glass);
                     quadrant++;
                 }
             }
-            Portal(root, detail, Vector3.forward, 19f, 260);
-            Portal(root, detail, Vector3.right, 16f, 261);
-            Portal(root, detail, Vector3.left, 21f, 262);
+            Portal(root, detail, Vector3.forward, profile.Portals[0], 260);
+            Portal(root, detail, Vector3.right, profile.Portals[1], 261);
+            Portal(root, detail, Vector3.left, profile.Portals[2], 262);
             Gateway(root, detail);
             detail.Emit(root, "Board block detail");
         }
@@ -395,84 +415,36 @@ namespace Crashout.Presentation
         }
 
         /// <summary>
-        /// A building straddling a road where it leaves the board. Traffic loops at 24 m, inside the
-        /// dark tunnel, so cars drive into the city beyond rather than popping out of existence.
+        /// The two blocks flanking a road where it leaves the board. Nothing spans the road: traffic
+        /// drives off the board edge and vanishes there, as through an invisible portal.
         /// </summary>
         private void Portal(Transform root, BatchedMeshes detail, Vector3 outward, float height, int seed)
         {
             Vector3 side = Vector3.Cross(Vector3.up, outward);
             Quaternion turn = Quaternion.LookRotation(outward, Vector3.up);
-            Vector3 euler = turn.eulerAngles;
             Vector3 middle = outward * EdgeCentre;
             float outer = FrontageCentre + FrontageWidth * 0.5f;
             float pierWidth = outer - PortalHalfWidth;
-            Material facade = facades[seed % facades.Length];
             for (int s = -1; s <= 1; s += 2)
             {
-                Vector3 pier = middle + side * (s * (PortalHalfWidth + pierWidth * 0.5f)) + Vector3.up * (height * 0.5f);
-                Structure(Slab(root, "Portal pier", pier, new Vector3(pierWidth, height, EdgeDepth), 0.05f, facade, true, euler), facade);
-                Windows(root, detail, pier, Abs(turn * new Vector3(pierWidth, height, EdgeDepth)), seed + s, false, 3.9f, true);
-            }
-            float lintelHeight = height - PortalHeight;
-            Structure(Slab(root, "Portal lintel", middle + Vector3.up * (PortalHeight + lintelHeight * 0.5f), new Vector3(PortalHalfWidth * 2f, lintelHeight, EdgeDepth), 0.05f, facade, true, euler), facade);
-            LintelWindows(detail, middle, outward, side, PortalHeight, height, seed);
-            Vector3 worldSize = new Vector3(Mathf.Abs(outward.x) > 0.5f ? EdgeDepth : outer * 2f, height, Mathf.Abs(outward.x) > 0.5f ? outer * 2f : EdgeDepth);
-            Building(root, middle + Vector3.up * (height * 0.5f), worldSize, seed, true);
-
-            // Concrete frame around the opening, a black lining and a row of tunnel lights.
-            float near = EdgeCentre - EdgeDepth * 0.5f;
-            Vector3 mouth = outward * (near - 0.15f);
-            detail.For(concrete).Box(mouth + Vector3.up * (PortalHeight + 0.3f), Abs(turn * new Vector3(PortalHalfWidth * 2f + 1f, 0.6f, 0.4f)), Quaternion.identity);
-            for (int s = -1; s <= 1; s += 2)
-            {
-                detail.For(concrete).Box(mouth + side * (s * (PortalHalfWidth + 0.25f)) + Vector3.up * (PortalHeight * 0.5f), Abs(turn * new Vector3(0.5f, PortalHeight, 0.4f)), Quaternion.identity);
-                detail.For(underbody).Box(middle + side * (s * (PortalHalfWidth - 0.05f)) + Vector3.up * (PortalHeight * 0.5f), Abs(turn * new Vector3(0.1f, PortalHeight, EdgeDepth)), Quaternion.identity);
-            }
-            detail.For(underbody).Box(middle + Vector3.up * (PortalHeight - 0.05f), Abs(turn * new Vector3(PortalHalfWidth * 2f, 0.1f, EdgeDepth)), Quaternion.identity);
-            detail.For(underbody).Box(outward * (RunwayProfile.BoardHalfExtent - 0.05f) + Vector3.up * (PortalHeight * 0.5f), Abs(turn * new Vector3(PortalHalfWidth * 2f, PortalHeight, 0.1f)), Quaternion.identity);
-            for (float a = near + 0.6f; a < RunwayProfile.BoardHalfExtent - 0.5f; a += 1.6f)
-            {
-                for (int s = -1; s <= 1; s += 2)
-                {
-                    detail.For(lampGlow).Box(outward * a + side * (s * (PortalHalfWidth - 0.6f)) + Vector3.up * (PortalHeight - 0.14f), Abs(turn * new Vector3(0.12f, 0.06f, 0.9f)), Quaternion.identity);
-                }
-            }
-        }
-
-        /// <summary>Windows over a portal opening, on the two faces that look along the road.</summary>
-        private void LintelWindows(BatchedMeshes detail, Vector3 middle, Vector3 outward, Vector3 side, float from, float height, int seed)
-        {
-            int floors = Mathf.FloorToInt((height - from - 1.2f) / 3f);
-            for (int face = -1; face <= 1; face += 2)
-            {
-                Vector3 normal = outward * face;
-                Quaternion facing = Quaternion.LookRotation(normal, Vector3.up);
-                for (int f = 0; f < floors; f++)
-                {
-                    for (int b = -2; b <= 2; b++)
-                    {
-                        Vector3 at = middle + normal * (EdgeDepth * 0.5f) + side * (b * 1.9f) + Vector3.up * (from + 1.9f + f * 3f);
-                        Material pane = Hash(seed + b * 3 + face, f * 7 + 1) < 0.24f ? windowLit[(b + 2 + f) % 2] : windowGlass;
-                        detail.For(windowFrame).Box(at + normal * 0.015f, new Vector3(1.27f, 1.87f, 0.11f), facing);
-                        detail.For(pane, false).Panel(at + normal * 0.074f, normal, Vector3.up, 1.1f, 1.7f);
-                        detail.For(concrete).Box(at + normal * 0.09f + Vector3.down * 0.97f, new Vector3(1.44f, 0.08f, 0.26f), facing);
-                        if (Destruction.Instance != null) Destruction.Instance.RegisterWindow(at + normal * 0.074f, normal, 1.14f, 1.74f);
-                    }
-                }
+                Vector3 footprint = middle + side * (s * (PortalHalfWidth + pierWidth * 0.5f));
+                Block(root, detail, footprint, Abs(turn * new Vector3(pierWidth, height, EdgeDepth)), seed + s, false);
             }
         }
 
         /// <summary>Twin towers and a glazed skybridge framing the runway's arrival on the south edge.</summary>
         private void Gateway(Transform root, BatchedMeshes detail)
         {
-            float[] heights = { 24f, 20.5f };
+            CityHeights profile = CityHeights.Active;
+            float[] heights = profile.Gateway;
             for (int s = -1; s <= 1; s += 2)
             {
                 Vector3 footprint = new Vector3(s * FrontageCentre, 0f, -EdgeCentre);
                 Block(root, detail, footprint, new Vector3(FrontageWidth, heights[(s + 1) / 2], EdgeDepth), 270 + s, false);
             }
+            if (profile.SkybridgeY <= 0f) return;
             float span = (FrontageCentre - FrontageWidth * 0.5f) * 2f + 0.4f;
-            Vector3 bridge = new Vector3(0f, 9.9f, -EdgeCentre);
+            Vector3 bridge = new Vector3(0f, profile.SkybridgeY, -EdgeCentre);
             Structure(Slab(root, "Skybridge", bridge, new Vector3(span, 3.4f, 3f), 0.05f, glassTower, true), concreteDark);
             detail.For(concreteDark).Box(bridge + Vector3.down * 1.62f, new Vector3(span, 0.35f, 3.2f), Quaternion.identity);
             detail.For(concreteDark).Box(bridge + Vector3.up * 1.62f, new Vector3(span, 0.35f, 3.2f), Quaternion.identity);

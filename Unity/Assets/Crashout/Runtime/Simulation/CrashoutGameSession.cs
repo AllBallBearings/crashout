@@ -463,6 +463,11 @@ namespace Crashout.Simulation
             return hit;
         }
 
+        public void ReportStructuralFailure(DamageableVehicle vehicle)
+        {
+            if (IsAuthority && Phase == GamePhase.Driving && vehicle != null && vehicle.IsPlayerVehicle) BeginCrash();
+        }
+
         public void ReportVehicleCollision(DamageableVehicle vehicle, uint otherEntityId, float impulse, float relativeSpeed, Vector3 contactNormal = default)
         {
             if (!IsAuthority || Phase == GamePhase.Results || vehicle == null) return;

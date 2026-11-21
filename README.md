@@ -28,13 +28,21 @@ The runtime also draws press-and-hold touch controls for device builds. The sing
 
 The game follows Burnout Revenge's Crash Mode: drive into a busy junction and cause the biggest pile-up you can, scored in dollars of damage.
 
-- **Junctions:** Cross Traffic, Rush Hour (buses) and Tanker Run (a fuel tanker), each with Bronze/Silver/Gold targets and a marked target car worth a bonus.
+- **Junctions:** Cross Traffic, Rush Hour (buses), Tanker Run (a fuel tanker) and Harbor Run (a fuel tanker at the docks), each with Bronze/Silver/Gold targets and a marked target car worth a bonus.
 - **Boost:** hold `Shift` or the BOOST button. Boost left at impact becomes Crashbreaker power.
 - **Impact time and aftertouch:** slow motion on impact, then steer the wreck relative to the camera for a few seconds.
 - **Crashbreaker:** `Space` / `F` / DETONATE blows up your car. The meter fills as cars are wrecked, and its charge sets the blast radius and force. It can be fired more than once.
 - **Chain reactions:** traffic only gives way to other moving traffic, so cars drive into wrecks. Wrecks slide and tumble, buses and tankers carry real mass, and tankers explode.
 
 Scenarios live in `Runtime/Simulation/CrashScenario.cs` and vehicle classes in `Runtime/Vehicle/VehicleSpec.cs`.
+
+## Vehicle bodies and destruction
+
+The player coupe and six traffic classes now load finished body assets from `Resources/Vehicles`, with continuous body surfaces, inset glazing, separate panels, interiors and mechanical structures under the skin. The authoring source supports Blender and a CPU-only export path; see [the vehicle art workflow](Tools/VehicleArt/README.md) for regeneration, previews and current limitations. Existing runtime wheels and controllers remain in use.
+
+`VehicleDamageShape` combines contact speed with transferred impulse per unit mass to drive progressive crush zones, bending and torsion. Compressed metal stores its lost projected length in folds instead of simply scaling away; the collision cage stays monotonic. Local contacts create dents, raised creases and scraped-paint masks. Opposing loaded contacts can compress a pinned vehicle. Panels, mirrors, bumpers and wheels detach under local attachment strain; exceptional structural failure clips the actual meshes into independently simulated sections with curled torn edges. Detached parts inherit point velocity and spin, ignore the originating wreck, and reset on retry. This is an arcade approximation with rigidbody fragments, not a finite-element solver. Replay records geometry and paint changes. Ordinary impacts use restrained contact sparks and dust instead of large flashes and random metal chunks.
+
+`VehicleDamageTests` covers crush, pressure, torsion, fold arc length, sheet gauge, non-inverting cages and tearing. `VehicleBodyAssetTests` validates every exported body and damage colours through tearing. `VehicleDestructionTests` in Play Mode exercises physical impacts, separation and retry restoration; `RunwayContactTests` drives all approaches through the board seam. Native shader, appearance and iPhone performance validation are still required. **Disable Scripts Only and make a full Unity iOS build** to include the new meshes and automotive paint shader.
 
 ## Turn replays
 
@@ -46,7 +54,7 @@ Replays include vehicle and wheel movement, mesh damage, detached debris, damage
 
 ## Approach runways
 
-The board stays a single 52 m diorama: one city block on a plinth, built out to its edges, with tunnel portals where the roads leave it (looping traffic disappears inside them). Each junction adds a runway arm, a panhandle that reaches off the board's south edge, so the run-in builds tension before the pile-up. The arm is only as wide as the road and its verges, cut square at its sides and end to show the strata, and stands on the same plinth. Off the AR table the diorama sits on a dark display floor; nothing else extends past the board.
+The board stays a single 52 m diorama on a plinth, built out to its edges and kept low-rise so the junction stays visible from every seat round the table: downtown is a main street of one-storey corner shops and two-storey blocks (`CityHeights`), and Harbor Run swaps in a harbor of container stacks, open cranes and quays (`CrashoutArt.Port`). Nothing spans a road; traffic drives off the board edge and vanishes as through an invisible portal, re-entering from the far edge. Each junction adds a runway arm, a panhandle that reaches off the board's south edge, so the run-in builds tension before the pile-up. The arm is only as wide as the road and its verges, cut square at its sides and end to show the strata, and stands on the same plinth. Off the AR table the diorama sits on a dark display floor; nothing else extends past the board.
 
 Every run starts one to two board-lengths out along the arm and well above the board:
 
@@ -55,12 +63,13 @@ Every run starts one to two board-lengths out along the arm and well above the b
 | Cross Traffic | **Hilltop Drop**: the brow of a 16 m hill, then a 26% descent onto the junction | 98 m out |
 | Rush Hour | **The Overpass**: a cable-stayed expressway over a river, then a ramp down into town | 92 m out |
 | Tanker Run | **Mountain Pass**: out of a tunnel, down a 30% pass and off a kicker ramp | 103 m out |
+| Harbor Run | **Ferry Ramp**: off a ferry's car deck, down the linkspan, under two ship cranes and over a half-raised bridge leaf | 100 m out |
 
 Profiles live in `RunwayProfile` (grade breaks blended through parabolic vertical curves) and are set per junction in `CrashScenario.cs`. `ApproachPlanner` predicts the player's arrival from their position, speed, inputs and the grade; traffic is parked and then phase-locked to that estimate (`TrafficVehicle.SteerToPhase`) so the junction converges as the player arrives, whether they cruise or boost the whole way. Out on the runway the barriers only scrape; scenery ends a run only on the board, and touching down off a crest or the ramp never does.
 
 ## Look and sound
 
-- **Art** is still generated at runtime, now physically based: synthesized albedo, normal and smoothness maps (asphalt, painted road, paving, brick and render facades, rock, terrain, foliage), clear-coat car paint, lofted car bodies with wheel arches and tumblehome, spoked alloy wheels, real-time reflections, a cloud layer, 4-cascade soft shadows, SSAO and a filmic post stack (ACES, white balance, split-tone grade, lens dirt, grain, motion blur, slow-motion depth of field) directed by `CinematicFx`.
+- **Art** combines exported vehicle bodies with a procedurally generated environment: synthesized albedo, normal and smoothness maps (asphalt, painted road, paving, brick and render facades, rock, terrain, foliage), clear-coat car paint, lofted car bodies with wheel arches and tumblehome, spoked alloy wheels, real-time reflections, a cloud layer, 4-cascade soft shadows, SSAO and a filmic post stack (ACES, white balance, split-tone grade, lens dirt, grain, motion blur, slow-motion depth of field) directed by `CinematicFx`.
 - **Damage**: `VehicleDeformer` dents render meshes around each contact, crazes glass, kills lamps and tears off bumpers; `VehicleLook` drives brake lights and post-crash hazards.
 - **Sound**: `EngineSynth` is a real-time V8 on the audio thread with a six-speed gearbox, overrun crackle and supercharger whine. Impacts are modal-synthesis metal with crumple grains, granular glass and debris; explosions layer a crack, sub boom and rumble. Wind, tyre roar, squeal, scrape, Doppler traffic, a tension drone and heartbeat, a low-pass "underwater" slow motion and reverb zones complete the mix.
 
@@ -89,4 +98,4 @@ The site intentionally contains no fake AR launch or browser gameplay button. It
 
 ## Current milestone
 
-Crash Mode (three junctions, boost, aftertouch, Crashbreaker, target bonus, medals) and the tabletop AR path are implemented and covered by Edit Mode and Play Mode tests on macOS. A physical iPhone build, touch handling, real plane placement, and shared multiplayer alignment have not yet been validated. Turn-based multiplayer scoring, Bonjour discovery, Netcode replication, and production art remain subsequent milestones.
+Crash Mode (four junctions, boost, aftertouch, Crashbreaker, target bonus, medals) and the tabletop AR path are implemented, covered by Edit Mode and Play Mode tests on macOS, and run on iPhone. Shared multiplayer alignment has not yet been validated. Turn-based multiplayer scoring, Bonjour discovery, Netcode replication, and production art remain subsequent milestones.

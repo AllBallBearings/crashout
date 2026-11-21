@@ -14,7 +14,6 @@ namespace Crashout.Presentation
     /// </summary>
     public sealed class CrashFx : MonoBehaviour
     {
-        private const int MaxDebris = 60;
         private const int DebrisLayer = 9;
 
         private CrashoutGameSession session;
@@ -22,14 +21,14 @@ namespace Crashout.Presentation
         private CinematicFx cinematic;
 
         private Material sparkMaterial, flashMaterial, fireMaterial, smokeMaterial, dustMaterial, shardMaterial, ringMaterial, skidMaterial, scorchMaterial, leafMaterial, waterMaterial;
-        private readonly List<GameObject> debris = new List<GameObject>();
         private readonly List<GameObject> wreckEffects = new List<GameObject>();
         private readonly HashSet<uint> smoking = new HashSet<uint>();
         private readonly List<Light> flashLights = new List<Light>();
         private readonly List<float> flashStarts = new List<float>();
         private readonly List<float> flashPeaks = new List<float>();
 
-        private TrailRenderer[] skids;
+        private SkidMarks[] skids;
+        private static readonly Vector3[] SkidWheels = { new Vector3(-0.71f, -0.2f, -0.98f), new Vector3(0.71f, -0.2f, -0.98f) };
         private ParticleSystem tyreSmoke;
         private ParticleSystem boostFlame;
         private ParticleSystem landingDust;
@@ -45,7 +44,7 @@ namespace Crashout.Presentation
             session.ScoreChanged += OnScore;
             session.Exploded += OnExploded;
             session.PhaseChanged += OnPhase;
-            Physics.IgnoreLayerCollision(DebrisLayer, 8, true);
+            Physics.IgnoreLayerCollision(DebrisLayer, 8, false);
             EnsureMaterials();
             BuildFlashLights();
         }
@@ -219,12 +218,10 @@ namespace Crashout.Presentation
         {
             if (phase == GamePhase.ReadyCheck)
             {
-                foreach (GameObject piece in debris) if (piece != null) Destroy(piece);
-                debris.Clear();
                 foreach (GameObject effect in wreckEffects) if (effect != null) Destroy(effect);
                 wreckEffects.Clear();
                 smoking.Clear();
-                if (skids != null) foreach (TrailRenderer trail in skids) { trail.emitting = false; trail.Clear(); }
+                if (skids != null) foreach (SkidMarks marks in skids) marks.Clear();
             }
         }
 
@@ -245,7 +242,12 @@ namespace Crashout.Presentation
             float lateral = Mathf.Abs(Vector3.Dot(velocity, player.transform.right));
             bool grounded = phase == GamePhase.Driving ? player.WheelsGrounded > 0 : NearGround(player.transform);
             bool sliding = live && grounded && speed > 4f && (lateral > 3.2f || (player.AppliedBrake > 0.5f && speed > 10f) || phase != GamePhase.Driving);
-            foreach (TrailRenderer trail in skids) trail.emitting = sliding;
+            for (int i = 0; i < skids.Length; i++)
+            {
+                Vector3 wheel = player.transform.TransformPoint(SkidWheels[i]);
+                bool onRoad = Physics.Raycast(wheel, Vector3.down, out RaycastHit ground, 1.2f, 1 << 0, QueryTriggerInteraction.Ignore);
+                skids[i].Sample(onRoad ? ground.point : wheel + Vector3.down * 0.35f, sliding && onRoad);
+            }
 
             ParticleSystem.EmissionModule smoke = tyreSmoke.emission;
             smoke.rateOverTime = sliding ? Mathf.Clamp(lateral * 6f + speed, 10f, 70f) : 0f;
@@ -275,26 +277,11 @@ namespace Crashout.Presentation
 
         private void AttachDrivingEffects(ArcadeVehicleController player)
         {
-            skids = new TrailRenderer[2];
+            skids = new SkidMarks[2];
             for (int i = 0; i < 2; i++)
             {
-                GameObject emitter = new GameObject("Skid " + i);
-                emitter.transform.SetParent(player.transform, false);
-                emitter.transform.localPosition = new Vector3(i == 0 ? -0.71f : 0.71f, -0.38f, -0.98f);
-                emitter.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-                TrailRenderer trail = emitter.AddComponent<TrailRenderer>();
-                trail.alignment = LineAlignment.TransformZ;
-                trail.time = 25f;
-                trail.minVertexDistance = 0.25f;
-                trail.widthMultiplier = 0.24f;
-                trail.sharedMaterial = skidMaterial;
-                trail.textureMode = LineTextureMode.Tile;
-                trail.shadowCastingMode = ShadowCastingMode.Off;
-                trail.receiveShadows = true;
-                trail.numCapVertices = 0;
-                trail.colorGradient = Fade(new Color(1f, 1f, 1f, 0.85f), new Color(1f, 1f, 1f, 0.85f), 0.85f, 0.6f);
-                trail.emitting = false;
-                skids[i] = trail;
+                // World-space strips, parented here rather than to the car so they stay where they were laid.
+                skids[i] = SkidMarks.Create(transform, "Skid marks " + i, skidMaterial, 0.24f, new Color(1f, 1f, 1f, 0.85f));
             }
 
             tyreSmoke = MakeLooping("Tyre smoke", player.transform, new Vector3(0f, -0.3f, -1.05f), smokeMaterial, false);
@@ -350,18 +337,23 @@ namespace Crashout.Presentation
             if (scoreEvent.Amount <= 0) return;
             DamageableVehicle owner = FindVehicle(scoreEvent.EntityId);
             if (owner == null) return;
-            Vector3 origin = owner.transform.position + Vector3.up * 0.35f;
+            Vector3 origin = owner.LastImpactPoint + owner.LastImpactNormal * 0.035f;
             float intensity = Mathf.Clamp(scoreEvent.RelativeSpeed / 10f, 0.4f, 2f);
 
-            Spawn("Impact flash", origin, 1, 0.08f, 0.12f, 0f, 0f, 3.6f * intensity, new Color(1f, 0.9f, 0.7f, 1f), new Color(1f, 0.7f, 0.4f, 1f), 0f, flashMaterial, false);
-            Spawn("Impact sparks", origin, Mathf.RoundToInt(46 * intensity), 0.25f, 0.75f, 5f, 15f * intensity, 0.07f, new Color(1f, 0.92f, 0.6f, 1f), new Color(1f, 0.55f, 0.15f, 1f), 1.8f, sparkMaterial, true);
-            Spawn("Impact smoke", origin + Vector3.up * 0.2f, Mathf.RoundToInt(10 * intensity), 1.4f, 2.8f, 0.4f, 1.8f, 1.8f, new Color(0.55f, 0.53f, 0.5f, 0.45f), new Color(0.32f, 0.31f, 0.3f, 0.35f), -0.05f, smokeMaterial, false);
-            if (scoreEvent.RelativeSpeed > 4f) Shards(origin, owner, intensity);
-            Flash(origin, Mathf.Lerp(4f, 14f, intensity * 0.5f), new Color(1f, 0.75f, 0.45f), 0.18f);
-            if (cameraRig != null) cameraRig.AddShake(Mathf.Clamp01(scoreEvent.RelativeSpeed / 14f));
-            if (cinematic != null) cinematic.Impact(Mathf.Clamp01(scoreEvent.RelativeSpeed / 16f));
-            SpawnDebris(scoreEvent, origin, owner);
-            AttachWreckSmoke(owner);
+            if (scoreEvent.RelativeSpeed > 7f)
+            {
+                ParticleSystem sparks = Burst("Contact sparks", origin, Mathf.RoundToInt(9 * intensity), 0.1f, 0.38f, 2f, 7f * intensity, 0.018f,
+                    new Color(1f, 0.72f, 0.32f, 1f), new Color(0.8f, 0.26f, 0.04f, 1f), 1f, sparkMaterial, true);
+                Aim(sparks, owner.LastImpactNormal, 65f); sparks.Play();
+                ParticleSystem dust = Burst("Contact dust", origin, Mathf.RoundToInt(4 * intensity), 0.35f, 0.9f, 0.2f, 1.1f, 0.4f,
+                    new Color(0.48f, 0.46f, 0.43f, 0.22f), new Color(0.33f, 0.32f, 0.3f, 0.12f), 0.1f, dustMaterial, false);
+                Aim(dust, owner.LastImpactNormal, 50f); FadeOut(dust, 0.8f); dust.Play();
+            }
+            if (scoreEvent.RelativeSpeed > 12f) Shards(origin, owner, intensity * 0.4f);
+            if (cameraRig != null) cameraRig.AddShake(Mathf.Clamp01(scoreEvent.RelativeSpeed / 28f) * 0.6f);
+            if (cinematic != null) cinematic.Impact(Mathf.Clamp01(scoreEvent.RelativeSpeed / 32f));
+            // Large debris comes from the actual deformed panels, not bonus random chunks.
+            if (scoreEvent.RelativeSpeed > 18f) AttachWreckSmoke(owner);
         }
 
         /// <summary>Glass and plastic shards that bounce on the road (particle collisions, no rigidbodies).</summary>
@@ -445,46 +437,6 @@ namespace Crashout.Presentation
             wreckEffects.Add(decal);
         }
 
-        private void SpawnDebris(ScoreEvent scoreEvent, Vector3 origin, DamageableVehicle owner)
-        {
-            VehicleLook look = owner.GetComponent<VehicleLook>();
-            Material paint = look != null ? look.Paint : null;
-            int count = Mathf.Clamp(Mathf.RoundToInt(scoreEvent.Amount / 1200f), 1, 4);
-            for (int i = 0; i < count && debris.Count < MaxDebris; i++)
-            {
-                var kit = new MeshKit();
-                // A bent panel: two hinged plates.
-                Vector3 size = new Vector3(Random.Range(0.2f, 0.55f), 0.02f, Random.Range(0.15f, 0.45f));
-                kit.Box(Vector3.zero, size, Quaternion.identity);
-                kit.Box(new Vector3(size.x * 0.5f, size.z * 0.15f, 0f), new Vector3(0.02f, size.z * 0.3f, size.z), Quaternion.Euler(0f, 0f, 25f));
-                GameObject piece = MeshKit.Spawn(null, "Debris", kit.ToMesh("Debris"), paint != null && Random.value < 0.75f ? paint : TrimMaterial(), true);
-                piece.layer = DebrisLayer;
-                piece.transform.position = origin + Random.insideUnitSphere * 0.5f;
-                piece.transform.rotation = Random.rotation;
-                BoxCollider box = piece.AddComponent<BoxCollider>();
-                box.size = new Vector3(size.x, 0.06f, size.z);
-                Rigidbody rb = piece.AddComponent<Rigidbody>();
-                rb.mass = 8f;
-                rb.linearDamping = 0.15f;
-                rb.linearVelocity = Random.insideUnitSphere * 6f * Mathf.Clamp(scoreEvent.RelativeSpeed / 8f, 0.6f, 2f) + Vector3.up * 3.5f;
-                rb.angularVelocity = Random.insideUnitSphere * 14f;
-                debris.Add(piece);
-            }
-        }
-
-        private Material trimDebris;
-
-        private Material TrimMaterial()
-        {
-            if (trimDebris == null)
-            {
-                trimDebris = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = "Debris trim" };
-                trimDebris.SetColor("_BaseColor", new Color(0.04f, 0.04f, 0.045f));
-                trimDebris.SetFloat("_Smoothness", 0.4f);
-            }
-            return trimDebris;
-        }
-
         private void AttachWreckSmoke(DamageableVehicle owner)
         {
             if (owner == null || owner.IsPlayerVehicle || !smoking.Add(owner.EntityId)) return;
@@ -494,14 +446,14 @@ namespace Crashout.Presentation
             ParticleSystem.MainModule main = smoke.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(2f, 4f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.6f, 1.8f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.9f, 1.8f);
+            main.startSize = burning ? new ParticleSystem.MinMaxCurve(0.9f, 1.8f) : new ParticleSystem.MinMaxCurve(0.25f, 0.55f);
             main.startColor = burning
                 ? new ParticleSystem.MinMaxGradient(new Color(0.12f, 0.11f, 0.1f, 0.8f), new Color(0.05f, 0.05f, 0.05f, 0.7f))
-                : new ParticleSystem.MinMaxGradient(new Color(0.6f, 0.6f, 0.6f, 0.4f), new Color(0.35f, 0.35f, 0.35f, 0.3f));
+                : new ParticleSystem.MinMaxGradient(new Color(0.7f, 0.7f, 0.7f, 0.2f), new Color(0.5f, 0.5f, 0.5f, 0.12f));
             main.gravityModifier = -0.1f;
             main.maxParticles = 120;
             ParticleSystem.EmissionModule emission = smoke.emission;
-            emission.rateOverTime = burning ? 26f : 12f;
+            emission.rateOverTime = burning ? 26f : 5f;
             Grow(smoke, 0.5f, 3f);
             FadeOut(smoke, 0.7f);
             Rotate(smoke);
@@ -513,7 +465,7 @@ namespace Crashout.Presentation
             drift.z = new ParticleSystem.MinMaxCurve(0.2f, 0.5f);
             wreckEffects.Add(smoke.gameObject);
 
-            if (burning || Random.value < 0.35f)
+            if (burning)
             {
                 ParticleSystem fire = MakeLooping("Wreck fire", owner.transform, new Vector3(0f, burning ? 1.2f : 0.45f, burning ? 0f : 1.1f), fireMaterial, false);
                 ParticleSystem.MainModule fireMain = fire.main;
@@ -722,8 +674,10 @@ namespace Crashout.Presentation
             leafMaterial = Particle("Leaf", ProceduralTextures.Shard(), false, Color.white, false);
             waterMaterial = Particle("Water", ProceduralTextures.SoftDot(), false, Color.white, true);
             ringMaterial = Particle("Shock ring", ProceduralTextures.Ring(), true, new Color(3f, 2.2f, 1.4f, 1f), false);
-            skidMaterial = new Material(Shader.Find("Sprites/Default")) { name = "Skid marks", mainTexture = ProceduralTextures.SkidMark() };
-            skidMaterial.renderQueue = 2460;
+            // The URP particle material the other effects use (vertex colour, alpha blend). Drawn ahead of
+            // the other transparent effects so smoke and sparks sit over the marks.
+            skidMaterial = Particle("Skid marks", ProceduralTextures.SkidMark(), false, Color.white, false);
+            skidMaterial.renderQueue = (int)RenderQueue.Transparent - 40;
             scorchMaterial = new Material(Shader.Find("Sprites/Default")) { name = "Scorch", mainTexture = ProceduralTextures.SoftDot(), color = new Color(0.02f, 0.02f, 0.02f, 0.85f) };
             scorchMaterial.renderQueue = 2470;
         }

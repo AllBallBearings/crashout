@@ -32,9 +32,13 @@ namespace Crashout.Tests
                 InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
 #endif
                 session.RequestScenarioChange((0 - session.Scenario.Index + CrashScenarios.Count) % CrashScenarios.Count);
+                // Already on this junction, the change is a no-op: reset so an earlier test's wrecks are cleared.
+                session.ResetTurn();
+                // The city repairs itself when the turn reaches its ready check.
+                for (int wait = 0; wait < 240 && session.Phase != GamePhase.ReadyCheck; wait++) yield return new WaitForFixedUpdate();
                 yield return new WaitForFixedUpdate();
                 yield return new WaitForFixedUpdate();
-                Assert.That(city.ScarCount + city.BrokenWindowCount + city.BrokenPropCount, Is.Zero, $"The city should start intact (scars {city.ScarCount}, windows {city.BrokenWindowCount}, props {city.BrokenPropCount}).");
+                Assert.That(city.ScarCount + city.BrokenWindowCount + city.BrokenPropCount, Is.Zero, $"The city should start intact (scars {city.ScarCount}, windows {city.BrokenWindowCount}, props {city.BrokenPropCount}: {city.DescribeBrokenProps()}).");
 
                 session.Launch(1f);
                 for (int tick = 0; tick < 900 && session.Phase == GamePhase.Driving; tick++)
