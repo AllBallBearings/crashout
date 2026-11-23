@@ -762,10 +762,12 @@ namespace Crashout.Presentation
                     frost = Mathf.Max(frost, SmoothStep(0.3f, 0.02f, d));
                     hole = Mathf.Max(hole, SmoothStep(0.035f, 0.015f, d + (Value(angle * 9f, k, 0, seed + 8) - 0.5f) * 0.02f));
                 }
-                Color glass = Color.Lerp(new Color(0.03f, 0.045f, 0.055f), new Color(0.3f, 0.36f, 0.37f), frost * 0.75f);
-                c = Color.Lerp(glass, new Color(0.72f, 0.8f, 0.8f), web * 0.85f);
-                c = Color.Lerp(c, new Color(0.005f, 0.005f, 0.006f), hole);
-                c.a = 1f;
+                Color glass = Color.Lerp(new Color(0.06f, 0.09f, 0.11f), new Color(0.55f, 0.62f, 0.65f), frost * 0.65f);
+                c = Color.Lerp(glass, new Color(0.86f, 0.92f, 0.94f), web * 0.9f);
+                // Keep shattered glass see-through so the driver can still see the road post-crash:
+                // clear panes (~0.18), frosted haze (~0.42), crisp spiderweb cracks (~0.85), punched holes (0).
+                float alpha = Mathf.Clamp01(0.18f + frost * 0.24f + web * 0.68f);
+                c.a = alpha * (1f - hole);
                 h = -web - hole * 2f;
                 m = 0.2f * (1f - frost);
                 s = Mathf.Lerp(0.93f, 0.4f, Mathf.Max(frost * 0.8f, web));

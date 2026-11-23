@@ -55,6 +55,11 @@ namespace Crashout.Presentation
             if (whiteBalance != null) baseTemperature = whiteBalance.temperature.value;
         }
 
+        public void SetTabletop(bool isTabletop)
+        {
+            tabletop = isTabletop;
+        }
+
         /// <summary>A hit: brief exposure punch and lens fringing scaled by severity 0..1.</summary>
         public void Impact(float severity)
         {

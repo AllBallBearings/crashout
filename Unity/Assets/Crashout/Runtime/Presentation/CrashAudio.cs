@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Crashout.Simulation;
 using Crashout.Vehicle;
@@ -75,6 +76,18 @@ namespace Crashout.Presentation
         public static CrashAudio Instance { get; private set; }
         public static bool Muted { get; private set; }
 
+#if UNITY_IOS && !UNITY_EDITOR
+        [DllImport("__Internal")]
+        private static extern void CrashoutActivateAudioSession();
+#endif
+
+        private static void EnsureIosAudioActive()
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            try { CrashoutActivateAudioSession(); } catch { }
+#endif
+        }
+
         public static void PlayClick()
         {
             if (Instance != null && Instance.click != null) Instance.ui.PlayOneShot(Instance.click, 0.6f);
@@ -115,9 +128,12 @@ namespace Crashout.Presentation
         private void Awake()
         {
             Instance = this;
+            EnsureIosAudioActive();
             Muted = PlayerPrefs.GetInt(MutePreference, 0) == 1;
             // Headless test runs still drive the speakers; keep them silent.
+            AudioListener.pause = false;
             AudioListener.volume = Muted || Application.isBatchMode ? 0f : 1f;
+            AudioSettings.OnAudioConfigurationChanged += HandleAudioConfigChanged;
             BuildClips();
 
             GameObject engineObject = new GameObject("Engine");
@@ -320,8 +336,40 @@ namespace Crashout.Presentation
 
         private void OnDestroy()
         {
+            AudioSettings.OnAudioConfigurationChanged -= HandleAudioConfigChanged;
             Unsubscribe();
             if (Instance == this) Instance = null;
+        }
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            if (hasFocus) RecoverAudio();
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (!paused) RecoverAudio();
+        }
+
+        private void HandleAudioConfigChanged(bool deviceWasChanged)
+        {
+            RecoverAudio();
+        }
+
+        private void RecoverAudio()
+        {
+            EnsureIosAudioActive();
+            AudioListener.pause = false;
+            AudioListener.volume = Muted || Application.isBatchMode ? 0f : 1f;
+            if (engine != null) engine.RestartCarrier();
+            foreach (AudioSource loop in new[] { boost, wind, road, squeal, scrape, ambient, siren, tension })
+            {
+                if (loop != null && loop.clip != null && !loop.isPlaying) loop.Play();
+            }
+            foreach (AudioSource voice in trafficVoices)
+            {
+                if (voice != null && voice.clip != null && !voice.isPlaying) voice.Play();
+            }
         }
 
         /// <summary>Gives every piece of city damage its own sound.</summary>

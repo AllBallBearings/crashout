@@ -46,6 +46,11 @@ namespace Crashout.Editor
                 PlayerSettings.iOS.cameraUsageDescription = CameraUsage;
                 changes.Add("camera usage description");
             }
+            if (!PlayerSettings.muteOtherAudioSources)
+            {
+                PlayerSettings.muteOtherAudioSources = true;
+                changes.Add("iOS playback audio category");
+            }
 
             if (changes.Count > 0)
             {

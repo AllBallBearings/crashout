@@ -37,6 +37,10 @@ namespace Crashout.Presentation
         private const float ArFarClip = 12f;
         private const float BoardExtent = 52f;
         private const float StartupTimeoutSeconds = 6f;
+        // Rotate the placed board -90 degrees around Y so the viewer stands 90 degrees clockwise
+        // from the -Z approach: the main intersection sits directly ahead and the car at the start
+        // line is up to the player's right.
+        private const float BoardClockwiseOffsetDegrees = -90f;
 
         private static readonly List<ARRaycastHit> Hits = new List<ARRaycastHit>();
 
@@ -45,6 +49,7 @@ namespace Crashout.Presentation
         private Camera gameCamera;
         private ArBoardCoordinator board;
         private Action fallback;
+        private Action<bool> virtualBackdropChanged;
 
         private ARSession arSession;
         private ARPlaneManager planeManager;
@@ -59,6 +64,7 @@ namespace Crashout.Presentation
 
         public ArStage Stage { get; private set; } = ArStage.Inactive;
         public bool IsActive => Stage != ArStage.Inactive;
+        public bool IsFirstPerson { get; private set; }
         public bool IsTracking => arSession != null && ARSession.state == ARSessionState.SessionTracking;
         public float BoardWidthMetres => BoardExtent * selectedScale;
 
@@ -66,13 +72,15 @@ namespace Crashout.Presentation
             Application.platform == RuntimePlatform.IPhonePlayer
             || Environment.GetEnvironmentVariable("CRASHOUT_FORCE_AR") == "1";
 
-        public void Configure(CrashoutGameSession gameSession, CrashoutCameraRig rig, Camera camera, ArBoardCoordinator boardCoordinator, Action onFallback)
+        public void Configure(CrashoutGameSession gameSession, CrashoutCameraRig rig, Camera camera,
+            ArBoardCoordinator boardCoordinator, Action onFallback, Action<bool> onVirtualBackdropChanged = null)
         {
             session = gameSession;
             cameraRig = rig;
             gameCamera = camera;
             board = boardCoordinator;
             fallback = onFallback;
+            virtualBackdropChanged = onVirtualBackdropChanged;
         }
 
         public void Begin()
@@ -96,7 +104,7 @@ namespace Crashout.Presentation
         public void PlaceBoard()
         {
             if (Stage != ArStage.ReadyToPlace) return;
-            float yaw = arCamera.transform.eulerAngles.y;
+            float yaw = arCamera.transform.eulerAngles.y + BoardClockwiseOffsetDegrees;
             board.Place(new Pose(candidatePose.position, Quaternion.Euler(0f, yaw, 0f)), selectedScale);
             planeManager.SetTrackablesActive(false);
             planeManager.enabled = false;
@@ -108,9 +116,55 @@ namespace Crashout.Presentation
             SyncCamera();
         }
 
+        public void ToggleFirstPerson()
+        {
+            if (Stage != ArStage.Playing) return;
+            SetFirstPerson(!IsFirstPerson);
+        }
+
+        /// <summary>
+        /// Switches between the AR tabletop side view and an in-car First-Person driver's-seat view.
+        /// Entering First-Person disables the AR passthrough feed and fills the background with the
+        /// full virtual sky, clouds and distant landscape; exiting restores the live AR table.
+        /// </summary>
+        public void SetFirstPerson(bool enabled)
+        {
+            if (Stage != ArStage.Playing || IsFirstPerson == enabled) return;
+            IsFirstPerson = enabled;
+
+            UniversalAdditionalCameraData baseData = arCamera.GetUniversalAdditionalCameraData();
+            UniversalAdditionalCameraData gameData = gameCamera.GetUniversalAdditionalCameraData();
+
+            if (enabled)
+            {
+                baseData.cameraStack.Remove(gameCamera);
+                arCamera.enabled = false;
+                gameData.renderType = CameraRenderType.Base;
+                gameData.renderPostProcessing = true;
+                gameCamera.clearFlags = CameraClearFlags.Skybox;
+                gameCamera.nearClipPlane = 0.05f;
+                gameCamera.farClipPlane = 950f;
+                gameCamera.ResetProjectionMatrix();
+                virtualBackdropChanged?.Invoke(true);
+                cameraRig.enabled = true;
+                cameraRig.SetMode(CameraMode.FirstPerson, true);
+            }
+            else
+            {
+                virtualBackdropChanged?.Invoke(false);
+                cameraRig.enabled = false;
+                arCamera.enabled = true;
+                gameData.renderType = CameraRenderType.Overlay;
+                gameData.renderPostProcessing = true;
+                if (!baseData.cameraStack.Contains(gameCamera)) baseData.cameraStack.Add(gameCamera);
+                SyncCamera();
+            }
+        }
+
         public void Relocate()
         {
             if (Stage != ArStage.Playing) return;
+            if (IsFirstPerson) SetFirstPerson(false);
             savedTimeScale = Time.timeScale > 0f ? Time.timeScale : savedTimeScale;
             Time.timeScale = 0f;
             gameCamera.enabled = false;
@@ -291,13 +345,13 @@ namespace Crashout.Presentation
             if (!found) return;
             reticle.transform.SetPositionAndRotation(
                 candidatePose.position + Vector3.up * 0.002f,
-                Quaternion.Euler(0f, arCamera.transform.eulerAngles.y, 0f));
+                Quaternion.Euler(0f, arCamera.transform.eulerAngles.y + BoardClockwiseOffsetDegrees, 0f));
             reticle.transform.localScale = new Vector3(BoardWidthMetres, 1f, BoardWidthMetres);
         }
 
         private void SyncCamera()
         {
-            if (Stage != ArStage.Playing || arCamera == null || gameCamera == null || board == null) return;
+            if (Stage != ArStage.Playing || IsFirstPerson || arCamera == null || gameCamera == null || board == null) return;
 
             float scale = board.PresentationScale;
             Transform boardTransform = board.transform;

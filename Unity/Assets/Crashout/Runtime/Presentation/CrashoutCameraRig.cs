@@ -1,15 +1,17 @@
+using System.Collections.Generic;
 using Crashout.Simulation;
 using Crashout.Vehicle;
 using UnityEngine;
 
 namespace Crashout.Presentation
 {
+    [DefaultExecutionOrder(50)]
     [RequireComponent(typeof(Camera))]
     public sealed class CrashoutCameraRig : MonoBehaviour
     {
         private const float RevealSeconds = 2.6f;
 
-        [SerializeField] private CameraMode mode = CameraMode.Chase;
+        [SerializeField] private CameraMode mode = CameraMode.Tabletop;
         [SerializeField] private Vector3 boardCenter = Vector3.zero;
 
         private CrashoutGameSession session;
@@ -23,6 +25,7 @@ namespace Crashout.Presentation
         private bool snapNextFrame;
         private float orbitRate = 7f;
         private float lastKnockSeen = -10f;
+        private readonly List<Renderer> hiddenCockpit = new List<Renderer>();
 
         public CameraMode Mode => mode;
         /// <summary>What the shot is about (the car, or the centre of the pile-up). Read by depth of field.</summary>
@@ -35,7 +38,7 @@ namespace Crashout.Presentation
             gameCamera = GetComponent<Camera>();
             gameCamera.fieldOfView = 58f;
             gameCamera.nearClipPlane = 0.05f;
-            gameCamera.farClipPlane = 700f;
+            gameCamera.farClipPlane = 950f;
         }
 
         public void Configure(CrashoutGameSession gameSession, ArcadeVehicleController target)
@@ -47,8 +50,16 @@ namespace Crashout.Presentation
             BeginReveal();
         }
 
+        public void SetPlayer(ArcadeVehicleController target)
+        {
+            RestoreCockpitRenderers();
+            player = target;
+            snapNextFrame = true;
+        }
+
         private void OnDestroy()
         {
+            RestoreCockpitRenderers();
             if (session != null) session.PhaseChanged -= OnPhase;
         }
 
@@ -70,16 +81,24 @@ namespace Crashout.Presentation
             trauma = Mathf.Clamp01(trauma + amount);
         }
 
+        public void SetMode(CameraMode newMode, bool snap = true)
+        {
+            mode = newMode;
+            velocity = Vector3.zero;
+            if (snap) snapNextFrame = true;
+        }
+
         public void CycleMode()
         {
             mode = mode == CameraMode.Tabletop
-                ? CameraMode.Chase
-                : mode == CameraMode.Chase
-                    ? CameraMode.FirstPerson
-                    : mode == CameraMode.FirstPerson
+                ? CameraMode.FirstPerson
+                : mode == CameraMode.FirstPerson
+                    ? CameraMode.Chase
+                    : mode == CameraMode.Chase
                         ? CameraMode.Overhead
                         : CameraMode.Tabletop;
             velocity = Vector3.zero;
+            if (mode == CameraMode.FirstPerson) snapNextFrame = true;
         }
 
         private void LateUpdate()
@@ -90,10 +109,11 @@ namespace Crashout.Presentation
             Transform target = replaying ? session.Replay.Focus : player.transform;
             GamePhase phase = replaying ? session.Replay.RecordedPhase : session.Phase;
             bool crashCamera = (phase == GamePhase.Crash || phase == GamePhase.SettleDelay || phase == GamePhase.Results)
-                && mode != CameraMode.Tabletop;
+                && mode != CameraMode.Tabletop
+                && !(mode == CameraMode.FirstPerson && phase != GamePhase.Results);
             Vector3 desiredPosition;
             Vector3 lookTarget;
-            float smoothTime = mode == CameraMode.FirstPerson ? 0.025f : 0.13f;
+            float smoothTime = mode == CameraMode.FirstPerson ? 0.015f : 0.13f;
 
             if (crashCamera)
             {
@@ -112,12 +132,19 @@ namespace Crashout.Presentation
                 switch (mode)
                 {
                     case CameraMode.Tabletop:
-                        desiredPosition = boardCenter + new Vector3(19f, 26f, -22f);
+                        // Side view 90 degrees clockwise from the approach: main intersection dead ahead,
+                        // start line and car sitting up to the player's right (-Z).
+                        desiredPosition = boardCenter + new Vector3(-28f, 18f, 0f);
                         lookTarget = boardCenter;
                         break;
                     case CameraMode.FirstPerson:
-                        desiredPosition = target.TransformPoint(0f, 0.38f, 0.1f);
-                        lookTarget = target.position + target.forward * 15f + Vector3.up * 0.25f;
+                        // Driver's eye position tailored per vehicle so the view clears the seat, steering wheel,
+                        // and dashboard cleanly out the windshield in both live play and replay.
+                        Vector3 eyeOffset = session.SelectedPlayerCar != null
+                            ? session.SelectedPlayerCar.FirstPersonEyeOffset
+                            : new Vector3(-0.34f, 0.69f, 0.36f);
+                        desiredPosition = target.TransformPoint(eyeOffset);
+                        lookTarget = desiredPosition + target.forward * 24f + target.up * 0.04f;
                         break;
                     case CameraMode.Overhead:
                         desiredPosition = target.position - target.forward * 3f + Vector3.up * 13.5f;
@@ -134,7 +161,7 @@ namespace Crashout.Presentation
                         break;
                 }
 
-                if (phase == GamePhase.ReadyCheck && mode != CameraMode.Tabletop)
+                if (phase == GamePhase.ReadyCheck && mode != CameraMode.Tabletop && mode != CameraMode.FirstPerson)
                 {
                     // Crane reveal: start high behind the car framing the drop and the junction below, then settle in.
                     float t = Mathf.Clamp01((Time.unscaledTime - revealStartedAt) / RevealSeconds);
@@ -148,17 +175,32 @@ namespace Crashout.Presentation
                 }
             }
 
+            bool inFirstPerson = mode == CameraMode.FirstPerson && !crashCamera;
+            gameCamera.nearClipPlane = inFirstPerson ? 0.14f : 0.05f;
+            UpdateCockpitVisibility(inFirstPerson, replaying, target);
+
             FocusPoint = crashCamera ? lookTarget : target.position;
+            Vector3 upAxis = inFirstPerson
+                ? Vector3.Slerp(Vector3.up, target.up, 0.45f)
+                : Vector3.up;
             if (snapNextFrame)
             {
                 transform.position = desiredPosition;
-                transform.rotation = Quaternion.LookRotation(lookTarget - desiredPosition, Vector3.up);
+                transform.rotation = Quaternion.LookRotation(lookTarget - desiredPosition, upAxis);
                 velocity = Vector3.zero;
                 snapNextFrame = false;
             }
-            transform.position = Vector3.SmoothDamp(transform.position, desiredPosition, ref velocity, smoothTime, Mathf.Infinity, Time.unscaledDeltaTime);
-            Quaternion desiredRotation = Quaternion.LookRotation(lookTarget - transform.position, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
+            if (inFirstPerson)
+            {
+                transform.position = desiredPosition;
+                transform.rotation = Quaternion.LookRotation(lookTarget - transform.position, upAxis);
+            }
+            else
+            {
+                transform.position = Vector3.SmoothDamp(transform.position, desiredPosition, ref velocity, smoothTime, Mathf.Infinity, Time.unscaledDeltaTime);
+                Quaternion desiredRotation = Quaternion.LookRotation(lookTarget - transform.position, upAxis);
+                transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
+            }
 
             float speed = player.SpeedMetresPerSecond;
             bool driving = !replaying && phase == GamePhase.Driving;
@@ -177,6 +219,7 @@ namespace Crashout.Presentation
 
             float targetFov = mode == CameraMode.Tabletop ? 50f
                 : crashCamera ? 50f
+                : mode == CameraMode.FirstPerson ? 66f + Mathf.Clamp(speed, 0f, 45f) * 0.28f + (player.IsBoosting && driving ? 6f : 0f)
                 : 56f + Mathf.Clamp(speed, 0f, 45f) * 0.42f + (player.IsBoosting && driving ? 6f : 0f);
             gameCamera.fieldOfView = Mathf.Lerp(gameCamera.fieldOfView, targetFov, 1f - Mathf.Exp(-4f * Time.unscaledDeltaTime));
 
@@ -198,6 +241,53 @@ namespace Crashout.Presentation
                     (Mathf.PerlinNoise(0.7f, Time.unscaledTime * 28f) - 0.5f) * 6f * shake,
                     (Mathf.PerlinNoise(Time.unscaledTime * 24f, 4.1f) - 0.5f) * 4f * shake);
                 trauma = Mathf.Max(0f, trauma - Time.unscaledDeltaTime * 1.3f);
+            }
+        }
+
+        private static bool IsCockpitBlocker(string objectName)
+        {
+            return objectName.EndsWith("Body interior")
+                || objectName.EndsWith("Body glass")
+                || objectName.EndsWith("Body trim")
+                || objectName.EndsWith("Roof panel paint")
+                || objectName.EndsWith("Roof panel matteBlack");
+        }
+
+        private void RestoreCockpitRenderers()
+        {
+            for (int i = 0; i < hiddenCockpit.Count; i++)
+            {
+                if (hiddenCockpit[i] != null) hiddenCockpit[i].forceRenderingOff = false;
+            }
+            hiddenCockpit.Clear();
+        }
+
+        private void UpdateCockpitVisibility(bool inFirstPerson, bool replaying, Transform target)
+        {
+            RestoreCockpitRenderers();
+            if (!inFirstPerson || target == null) return;
+
+            if (!replaying)
+            {
+                foreach (Renderer r in player.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (r == null || !IsCockpitBlocker(r.gameObject.name)) continue;
+                    r.forceRenderingOff = true;
+                    hiddenCockpit.Add(r);
+                }
+            }
+            else
+            {
+                GameObject replayRoot = GameObject.Find("Turn replay (render only)");
+                if (replayRoot == null) return;
+                Vector3 pos = target.position;
+                foreach (Renderer r in replayRoot.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (r == null || !IsCockpitBlocker(r.gameObject.name)) continue;
+                    if ((r.transform.position - pos).sqrMagnitude > 2.6f) continue;
+                    r.forceRenderingOff = true;
+                    hiddenCockpit.Add(r);
+                }
             }
         }
 

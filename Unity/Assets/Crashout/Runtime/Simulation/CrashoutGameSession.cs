@@ -20,7 +20,7 @@ namespace Crashout.Simulation
         private const float LaunchSweepSeconds = 1.1f;
         public const float LaunchZoneMin = 0.8f;
         public const float LaunchZoneMax = 0.95f;
-        private const float CruiseSpeed = 20f;
+        private const float CruiseSpeed = 42f;
         private const float PerfectLaunchBoostSeconds = 1.3f;
         private const float NominalLaunchSpeed = 5f;
         /// <summary>
@@ -66,6 +66,7 @@ namespace Crashout.Simulation
         private Vector3 aftertouchRight = Vector3.right;
         private Vector3 aftertouchForward = Vector3.forward;
         private bool aftertouchFrameHeld;
+        private int selectedPlayerCarIndex;
 
         public bool IsAuthority { get; private set; } = true;
         public uint HostTick => stateMachine.HostTick;
@@ -104,6 +105,8 @@ namespace Crashout.Simulation
             : 0f;
         public float TimeSinceLastScore => Time.time - lastScoringImpactAt;
         public ArcadeVehicleController Player => player;
+        public int SelectedPlayerCarIndex => selectedPlayerCarIndex;
+        public PlayerCarSpec SelectedPlayerCar => PlayerCarCatalog.Get(selectedPlayerCarIndex);
         public LocalDriverInput LocalInput => localInput;
         public TurnReplay Replay { get; private set; }
         public IReadOnlyList<DamageableVehicle> Vehicles => vehicles;
@@ -115,6 +118,7 @@ namespace Crashout.Simulation
         /// <summary>Centre, radius and whether the player's Crashbreaker caused the blast.</summary>
         public event Action<Vector3, float, bool> Exploded;
         public event Action<int> ScenarioChangeRequested;
+        public event Action<int> PlayerCarChangeRequested;
 
         public void Configure(
             ArcadeVehicleController playerController,
@@ -146,6 +150,27 @@ namespace Crashout.Simulation
         {
             Replay?.Clear();
             ScenarioChangeRequested?.Invoke(delta);
+        }
+
+        public void SelectPlayerCar(int index)
+        {
+            if (Phase != GamePhase.ReadyCheck) return;
+            int wrapped = ((index % PlayerCarCatalog.Count) + PlayerCarCatalog.Count) % PlayerCarCatalog.Count;
+            if (wrapped == selectedPlayerCarIndex) return;
+            selectedPlayerCarIndex = wrapped;
+            PlayerCarChangeRequested?.Invoke(selectedPlayerCarIndex);
+        }
+
+        public void RequestPlayerCarChange(int delta)
+        {
+            SelectPlayerCar(selectedPlayerCarIndex + delta);
+        }
+
+        public void SetPlayer(ArcadeVehicleController newPlayer, IEnumerable<DamageableVehicle> damageableVehicles)
+        {
+            player = newPlayer;
+            playerVehicle = player != null ? player.GetComponent<DamageableVehicle>() : null;
+            SetVehicles(damageableVehicles);
         }
 
         private void SetVehicles(IEnumerable<DamageableVehicle> damageableVehicles)
@@ -208,6 +233,15 @@ namespace Crashout.Simulation
             if (keyboard != null && keyboard.nKey.wasPressedThisFrame)
             {
                 RequestScenarioChange(1);
+            }
+            if (keyboard != null && Phase == GamePhase.ReadyCheck)
+            {
+                if (keyboard.digit1Key.wasPressedThisFrame) SelectPlayerCar(0);
+                else if (keyboard.digit2Key.wasPressedThisFrame) SelectPlayerCar(1);
+                else if (keyboard.digit3Key.wasPressedThisFrame) SelectPlayerCar(2);
+                else if (keyboard.digit4Key.wasPressedThisFrame) SelectPlayerCar(3);
+                else if (keyboard.qKey.wasPressedThisFrame || keyboard.leftArrowKey.wasPressedThisFrame) RequestPlayerCarChange(-1);
+                else if (keyboard.eKey.wasPressedThisFrame || keyboard.rightArrowKey.wasPressedThisFrame) RequestPlayerCarChange(1);
             }
             UpdateImpactTime();
         }

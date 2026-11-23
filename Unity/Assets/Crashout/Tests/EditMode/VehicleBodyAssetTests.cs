@@ -8,6 +8,9 @@ namespace Crashout.Tests
     public sealed class VehicleBodyAssetTests
     {
         [TestCase("Player")]
+        [TestCase("PlayerMuscle")]
+        [TestCase("PlayerBmw")]
+        [TestCase("PlayerSuv")]
         [TestCase("Sedan")]
         [TestCase("Hatch")]
         [TestCase("Van")]

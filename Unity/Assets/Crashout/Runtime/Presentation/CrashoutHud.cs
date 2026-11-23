@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Crashout.Simulation;
+using Crashout.Vehicle;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -310,9 +311,23 @@ namespace Crashout.Presentation
                 case "replay-1": session.Replay?.SetSpeed(1f); break;
                 case "replay-2": session.Replay?.SetSpeed(2f); break;
                 case "retry": session.ResetTurn(); break;
-                case "camera": cameraRig.CycleMode(); break;
+                case "camera":
+                    if (ArMode != null && ArMode.IsActive && ArMode.Stage == ArStage.Playing)
+                    {
+                        ArMode.ToggleFirstPerson();
+                        showBoardTools = false;
+                    }
+                    else
+                    {
+                        cameraRig.CycleMode();
+                    }
+                    break;
                 case "boom": session.TryCrashbreaker(); break;
                 case "next": session.RequestScenarioChange(1); break;
+                case "car-0": session.SelectPlayerCar(0); break;
+                case "car-1": session.SelectPlayerCar(1); break;
+                case "car-2": session.SelectPlayerCar(2); break;
+                case "car-3": session.SelectPlayerCar(3); break;
                 case "place": ArMode?.PlaceBoard(); break;
                 case "board": showBoardTools = !showBoardTools; break;
                 case "sound": CrashAudio.ToggleMute(); break;
@@ -535,15 +550,13 @@ namespace Crashout.Presentation
         {
             var items = new List<KeyValuePair<string, Icon>>();
             bool arPlaying = ArMode != null && ArMode.IsActive && ArMode.Stage == ArStage.Playing;
-            if (!arPlaying) showBoardTools = false;
-            if (arPlaying)
+            bool arFirstPerson = arPlaying && ArMode.IsFirstPerson;
+            if (!arPlaying || arFirstPerson) showBoardTools = false;
+            if (arPlaying && !arFirstPerson)
             {
                 items.Add(new KeyValuePair<string, Icon>("board", showBoardTools ? Icon.Check : Icon.Board));
             }
-            else
-            {
-                items.Add(new KeyValuePair<string, Icon>("camera", Icon.Camera));
-            }
+            items.Add(new KeyValuePair<string, Icon>("camera", Icon.Camera));
             items.Add(new KeyValuePair<string, Icon>("retry", Icon.Retry));
             items.Add(new KeyValuePair<string, Icon>("sound", CrashAudio.Muted ? Icon.SoundOff : Icon.SoundOn));
 
@@ -821,7 +834,7 @@ namespace Crashout.Presentation
 
         private void DrawKeyHints(Frame f, GamePhase phase)
         {
-            string hint = phase == GamePhase.ReadyCheck ? "SPACE  LAUNCH      C  CAMERA      N  NEXT JUNCTION"
+            string hint = phase == GamePhase.ReadyCheck ? "SPACE  LAUNCH      1-4 / Q E  SWITCH CAR      C  CAMERA      N  NEXT JUNCTION"
                 : phase == GamePhase.Driving ? "A / D  STEER      SHIFT  BOOST      S  BRAKE      R  RETRY"
                 : "W A S D  STEER THE WRECK      SPACE  CRASHBREAKER      R  RETRY";
             Label(new Rect(f.X0, f.Y1 - 12f, f.X1 - f.X0, 14f), hint, phase == GamePhase.ReadyCheck ? text : textLeft, 9, Fade(Color.white, 0.62f), 0.5f);
@@ -849,6 +862,25 @@ namespace Crashout.Presentation
         private void DrawLaunchMeter(Frame f)
         {
             Rect area = CentreBottomArea(f, 84f);
+
+            // 4-car selector bar directly above the launch meter at the start of every round.
+            const float pickerH = 54f;
+            Rect picker = new Rect(area.x, area.y - pickerH - 8f, area.width, pickerH);
+            GUI.Box(picker, GUIContent.none, plateStyle);
+            PlayerCarSpec current = session.SelectedPlayerCar;
+            Label(new Rect(picker.x + 10f, picker.y + 4f, picker.width - 20f, 13f),
+                "SELECT RIDE  ·  " + current.DisplayName, textLeft, 9, Fade(Hot, 0.95f), 0.5f);
+            float btnGap = 5f;
+            int count = PlayerCarCatalog.Count;
+            float btnW = (picker.width - 20f - btnGap * (count - 1)) / count;
+            for (int i = 0; i < count; i++)
+            {
+                PlayerCarSpec spec = PlayerCarCatalog.All[i];
+                bool selected = i == session.SelectedPlayerCarIndex;
+                Rect btn = new Rect(picker.x + 10f + i * (btnW + btnGap), picker.y + 20f, btnW, 28f);
+                Control("car-" + i, btn, spec.ShortLabel, selected ? Kind.Button : Kind.Soft);
+            }
+
             GUI.Box(area, GUIContent.none, plateStyle);
             float meter = session.LaunchMeter;
             bool inZone = meter >= CrashoutGameSession.LaunchZoneMin && meter <= CrashoutGameSession.LaunchZoneMax;
@@ -1049,7 +1081,7 @@ namespace Crashout.Presentation
             Control("replay-close", results, "", Kind.Hidden);
             GUI.Box(new Rect(results.x, results.y + 6f, results.width, 32f), GUIContent.none, ghostStyle);
             Label(results, "RESULTS", text, 11, pressed.Contains("replay-close") ? Cool : Color.white);
-            if (ArMode == null || !ArMode.IsActive)
+            if (ArMode == null || !ArMode.IsActive || ArMode.Stage == ArStage.Playing)
                 Control("camera", new Rect(results.x - 50f, f.Y0, MinTarget, MinTarget), "", Kind.Icon, true, icons[Icon.Camera]);
 
             var layout = new ReplayControlsLayout(new Rect(f.X0, f.Y0, f.X1 - f.X0, f.Y1 - f.Y0), f.Landscape);
