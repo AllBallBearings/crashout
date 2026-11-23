@@ -51,10 +51,23 @@ namespace Crashout.Presentation
             return table;
         }
 
+        private AudioSource source;
+
         private void Awake()
         {
-            sampleRate = AudioSettings.outputSampleRate;
-            AudioSource source = GetComponent<AudioSource>();
+            source = GetComponent<AudioSource>();
+            StartCarrier();
+        }
+
+        public void RestartCarrier()
+        {
+            StartCarrier();
+        }
+
+        private void StartCarrier()
+        {
+            if (source == null) source = GetComponent<AudioSource>();
+            sampleRate = Mathf.Max(8000f, AudioSettings.outputSampleRate);
             // A silent constant clip keeps the filter chain running; we write the signal ourselves.
             AudioClip carrier = AudioClip.Create("Engine carrier", 1024, 1, (int)sampleRate, false);
             float[] ones = new float[1024];

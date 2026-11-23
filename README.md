@@ -4,6 +4,16 @@ Crashout is a local turn-based crash game for people gathered around the same ta
 
 The production game is native Unity. The website at the repository root is the public companion—not a browser gameplay client.
 
+## Screenshots
+
+| Downtown Crashbreaker | Approach Runway |
+| --- | --- |
+| ![Crashbreaker detonation in the downtown junction](docs/screenshots/crashbreaker-junction.png) | ![Downhill approach runway leading into Cross Traffic](docs/screenshots/approach-runway.png) |
+
+| Harbor Run Pile-Up | Playable & Traffic Vehicle Fleet |
+| --- | --- |
+| ![Harbor Run impact with detached panels and shattered glass](docs/screenshots/harbor-run-pileup.png) | ![Four selectable player rides and six traffic classes built in Blender](Art/Vehicles/Fleet.png) |
+
 ## Repository layout
 
 - `Unity/` — Unity 6.3 LTS (`6000.3.27f2`) native iPhone/iPad game project.
@@ -20,7 +30,7 @@ The old Three.js / Quick Look implementation remains available in Git history th
 1. Use Unity `6000.3.27f2` (Apple Silicon on Apple Silicon Macs) with iOS Build Support.
 2. Open the `Unity` directory from Unity Hub.
 3. Open `Assets/Crashout/Scenes/Startup.unity` (it is the only scene in the build list) and press Play. `CrashoutBootstrapper` creates the junction, traffic and HUD at runtime.
-4. Hold `W` / Up Arrow to accelerate, use `A` and `D` / arrow keys to steer, `S` to brake, hold `Shift` to boost, `C` to cycle cameras, `R` to retry, and `N` for the next junction. Each run starts frozen: tap `W` / `Space` (or the GAS pad) with the launch bar in the green to start, and the traffic is released at that moment.
+4. Hold `W` / Up Arrow to accelerate, use `A` and `D` / arrow keys to steer, `S` to brake, hold `Shift` to boost, `C` to cycle cameras, `R` to retry, and `N` for the next junction. Each run starts frozen: choose one of four rides (**GT-R Coupe**, **70s Muscle**, **M4 GT**, or **Tactical SUV**) using `1`–`4` / `Q` `E` (or tapping the **SELECT RIDE** bar), then tap `W` / `Space` (or the GAS pad) with the launch bar in the green to start—traffic is released at that moment.
 
 The runtime also draws press-and-hold touch controls for device builds. The single-device slice already uses a 60 Hz authority tick, physical Rigidbody traffic, host-only damage scoring, repeat-contact filtering, settle detection, and a 20-second safety timeout.
 
@@ -38,7 +48,7 @@ Scenarios live in `Runtime/Simulation/CrashScenario.cs` and vehicle classes in `
 
 ## Vehicle bodies and destruction
 
-The player coupe and six traffic classes now load finished body assets from `Resources/Vehicles`, with continuous body surfaces, inset glazing, separate panels, interiors and mechanical structures under the skin. The authoring source supports Blender and a CPU-only export path; see [the vehicle art workflow](Tools/VehicleArt/README.md) for regeneration, previews and current limitations. Existing runtime wheels and controllers remain in use.
+Four selectable player rides (`Player`, `PlayerMuscle`, `PlayerBmw`, `PlayerSuv`) and six traffic classes (`Sedan`, `Hatch`, `Van`, `Pickup`, `Bus`, `Tanker`) load finished crash-ready body assets from `Resources/Vehicles`, with sculpted body panels, inset glazing, separate detachable doors/hoods/fenders/bumpers/wings/bullbars, interiors, and frame rails under the skin. The authoring source builds directly in Blender (`Tools/VehicleArt/build_vehicles.py`); see [the vehicle art workflow](Tools/VehicleArt/README.md) for regeneration and previews. Existing runtime wheels and controllers remain in use.
 
 `VehicleDamageShape` combines contact speed with transferred impulse per unit mass to drive progressive crush zones, bending and torsion. Compressed metal stores its lost projected length in folds instead of simply scaling away; the collision cage stays monotonic. Local contacts create dents, raised creases and scraped-paint masks. Opposing loaded contacts can compress a pinned vehicle. Panels, mirrors, bumpers and wheels detach under local attachment strain; exceptional structural failure clips the actual meshes into independently simulated sections with curled torn edges. Detached parts inherit point velocity and spin, ignore the originating wreck, and reset on retry. This is an arcade approximation with rigidbody fragments, not a finite-element solver. Replay records geometry and paint changes. Ordinary impacts use restrained contact sparks and dust instead of large flashes and random metal chunks.
 

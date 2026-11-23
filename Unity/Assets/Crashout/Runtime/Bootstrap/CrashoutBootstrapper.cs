@@ -14,7 +14,9 @@ namespace Crashout.Bootstrap
         private CrashoutGameSession session;
         private ArcadeVehicleController player;
         private ResettableBody playerReset;
+        private CrashoutCameraRig cameraRig;
         private int scenarioIndex;
+        private int playerCarIndex;
         // Lanes loop 34 m out (the schedules are tuned to that period), but cars vanish as they
         // drive off the board's edge, as through an invisible portal, and re-emerge from the far edge.
         private const float LoopExtent = 34f;
@@ -26,6 +28,7 @@ namespace Crashout.Bootstrap
         private Transform runwayWorld;
         private PhysicsMaterial rollingContact;
         private Destruction destruction;
+        private CinematicFx cinematic;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void InstallPrototype()
@@ -52,11 +55,11 @@ namespace Crashout.Bootstrap
             art.InstallReflections(transform);
 
             session = gameObject.AddComponent<CrashoutGameSession>();
-            player = CreatePlayer(session);
+            player = CreatePlayer(session, PlayerCarCatalog.Get(playerCarIndex), new Vector3(0f, 0.56f, -18f));
 
-            CrashoutCameraRig cameraRig = CreateCamera();
+            cameraRig = CreateCamera();
             VolumeProfile look = art.InstallPostProcessing(cameraRig.GetComponent<Camera>(), transform, useAr);
-            CinematicFx cinematic = gameObject.AddComponent<CinematicFx>();
+            cinematic = gameObject.AddComponent<CinematicFx>();
             cinematic.Configure(session, cameraRig, look, useAr);
             CrashoutHud hud = gameObject.AddComponent<CrashoutHud>();
             CrashFx fx = gameObject.AddComponent<CrashFx>();
@@ -70,6 +73,7 @@ namespace Crashout.Bootstrap
             crashAudio.Configure(session);
             crashAudio.Watch(destruction);
             session.ScenarioChangeRequested += ChangeScenario;
+            session.PlayerCarChangeRequested += SelectPlayerCar;
             LoadScenario(0);
 
             if (useAr)
@@ -78,24 +82,28 @@ namespace Crashout.Bootstrap
                 boardObject.transform.SetParent(transform, false);
                 ArBoardCoordinator board = boardObject.AddComponent<ArBoardCoordinator>();
                 ArTabletopMode arMode = gameObject.AddComponent<ArTabletopMode>();
-                arMode.Configure(session, cameraRig, cameraRig.GetComponent<Camera>(), board, UseVirtualWorld);
+                arMode.Configure(session, cameraRig, cameraRig.GetComponent<Camera>(), board, UseVirtualWorld, SetVirtualBackdrop);
                 hud.ArMode = arMode;
                 arMode.Begin();
             }
         }
 
-        private ArcadeVehicleController CreatePlayer(CrashoutGameSession session)
+        private ArcadeVehicleController CreatePlayer(CrashoutGameSession session, PlayerCarSpec carSpec, Vector3 startPos)
         {
-            GameObject car = art.CreateCar("Player car", art.PlayerPaint, VehicleClass.Sedan, true, out Transform[] frontPivots, out Transform[] rollPivots);
-            car.transform.position = new Vector3(0f, 0.56f, -18f);
+            Material paint = art.CreatePlayerPaint(carSpec.PaintColor, carSpec.MetallicPaint, "Player paint " + carSpec.Id);
+            GameObject car = art.CreateCar("Player car", paint, VehicleClass.Sedan, true,
+                out Transform[] frontPivots, out Transform[] rollPivots, carSpec.AssetName, carSpec.WheelPositions);
+            car.transform.position = startPos;
             car.transform.rotation = Quaternion.identity;
             Rigidbody body = car.AddComponent<Rigidbody>();
+            body.interpolation = RigidbodyInterpolation.Interpolate;
             BoxCollider collider = car.AddComponent<BoxCollider>();
-            collider.size = new Vector3(1.75f, 0.56f, 4.12f);
+            collider.size = carSpec.ColliderSize;
             car.layer = 8;
 
             ArcadeVehicleController controller = car.AddComponent<ArcadeVehicleController>();
             controller.SetWheelVisuals(frontPivots, rollPivots);
+            controller.ApplyTuning(carSpec.Mass, carSpec.TopSpeed, carSpec.MotorForce);
             DamageableVehicle damageable = car.AddComponent<DamageableVehicle>();
             damageable.Configure(1u, true, session, 26000);
             ResettableBody resettable = car.AddComponent<ResettableBody>();
@@ -103,6 +111,23 @@ namespace Crashout.Bootstrap
             playerReset = resettable;
             vehicles.Add(damageable);
             return controller;
+        }
+
+        private void SelectPlayerCar(int index)
+        {
+            playerCarIndex = ((index % PlayerCarCatalog.Count) + PlayerCarCatalog.Count) % PlayerCarCatalog.Count;
+            Vector3 startPos = session.Scenario != null ? session.Scenario.PlayerStart : (player != null ? player.transform.position : new Vector3(0f, 0.56f, -18f));
+            if (player != null)
+            {
+                vehicles.RemoveAll(v => v == null || v.IsPlayerVehicle);
+                player.gameObject.SetActive(false);
+                Destroy(player.gameObject);
+            }
+            player = CreatePlayer(session, PlayerCarCatalog.Get(playerCarIndex), startPos);
+            playerReset.SetStartPose(startPos, Quaternion.identity);
+            session.SetPlayer(player, vehicles);
+            if (cameraRig != null) cameraRig.SetPlayer(player);
+            art.RefreshReflections();
         }
 
         private void ChangeScenario(int delta)
@@ -168,14 +193,16 @@ namespace Crashout.Bootstrap
             }
 
             VehicleSpec spec = VehicleSpec.For(spawn.Class);
-            Color colour = spawn.Class == VehicleClass.Bus ? new Color(0.92f, 0.62f, 0.06f)
-                : spawn.Class == VehicleClass.Tanker ? new Color(0.62f, 0.05f, 0.04f)
+            Color colour = spawn.Class == VehicleClass.Bus ? new Color(0.92f, 0.93f, 0.95f)
+                : spawn.Class == VehicleClass.Tanker ? new Color(0.14f, 0.16f, 0.19f)
+                : spawn.Class == VehicleClass.Van ? new Color(0.93f, 0.94f, 0.95f)
                 : CrashoutArt.TrafficPalette[(int)(id * 5) % CrashoutArt.TrafficPalette.Length];
             Material paint = art.CreatePaint(colour, "Traffic paint " + id);
             GameObject car = art.CreateCar("Traffic " + id, paint, spawn.Class, false, out _, out _);
             car.transform.SetPositionAndRotation(spawn.Position, Quaternion.LookRotation(spawn.Direction, Vector3.up));
             car.layer = 8;
             Rigidbody body = car.AddComponent<Rigidbody>();
+            body.interpolation = RigidbodyInterpolation.Interpolate;
             BoxCollider collider = car.AddComponent<BoxCollider>();
             collider.size = spec.ColliderSize;
             collider.sharedMaterial = rollingContact;
@@ -199,7 +226,13 @@ namespace Crashout.Bootstrap
         {
             boardTabletop = false;
             RebuildBoard();
-            art.EnableVirtualSky(transform);
+            SetVirtualBackdrop(true);
+        }
+
+        private void SetVirtualBackdrop(bool enabled)
+        {
+            art.SetVirtualBackdrop(transform, enabled);
+            if (cinematic != null) cinematic.SetTabletop(!enabled);
             art.RefreshReflections();
         }
 

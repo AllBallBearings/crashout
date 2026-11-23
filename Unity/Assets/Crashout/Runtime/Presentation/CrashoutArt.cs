@@ -18,15 +18,15 @@ namespace Crashout.Presentation
     {
         public static readonly Color[] TrafficPalette =
         {
-            new Color(0.08f, 0.16f, 0.32f),  // deep blue
-            new Color(0.72f, 0.72f, 0.74f),  // silver
-            new Color(0.55f, 0.06f, 0.07f),  // burgundy
-            new Color(0.93f, 0.93f, 0.91f),  // white
-            new Color(0.06f, 0.06f, 0.07f),  // black
-            new Color(0.2f, 0.34f, 0.3f),    // forest green
-            new Color(0.42f, 0.43f, 0.45f),  // graphite
-            new Color(0.78f, 0.6f, 0.36f),   // champagne
-            new Color(0.1f, 0.42f, 0.62f)    // ocean blue
+            new Color(0.92f, 0.93f, 0.94f),  // pearl white
+            new Color(0.14f, 0.24f, 0.42f),  // metallic steel blue
+            new Color(0.68f, 0.70f, 0.73f),  // liquid silver
+            new Color(0.24f, 0.26f, 0.29f),  // gunmetal graphite
+            new Color(0.58f, 0.08f, 0.09f),  // deep burgundy red
+            new Color(0.08f, 0.09f, 0.10f),  // obsidian black
+            new Color(0.12f, 0.28f, 0.22f),  // British racing green
+            new Color(0.74f, 0.64f, 0.48f),  // champagne metallic
+            new Color(0.16f, 0.36f, 0.56f)   // slate cobalt
         };
 
         private static Shader litShader;
@@ -68,7 +68,10 @@ namespace Crashout.Presentation
         private readonly Material rubber;
         private readonly Material alloy;
         private readonly Material chrome;
+        private readonly Material accentPaint;
+        private readonly Material goldTrim;
         private readonly Material trim;
+        private readonly Material matteBlack;
         private readonly Material underbody;
         private readonly Material brakeDisc;
         private readonly Material caliper;
@@ -171,7 +174,7 @@ namespace Crashout.Presentation
             signGreen = Lit("Road sign", new Color(0.02f, 0.28f, 0.14f), 0.1f, 0.6f);
             Emissive(signGreen, new Color(0.02f, 0.06f, 0.03f));
 
-            glass = Lit("Car glass", new Color(0.065f, 0.1f, 0.12f, 0.62f), 0.15f, 0.94f);
+            glass = Lit("Car glass", new Color(0.065f, 0.1f, 0.12f, 0.36f), 0.15f, 0.94f);
             glass.SetFloat("_Surface", 1f);
             glass.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
             glass.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
@@ -180,10 +183,19 @@ namespace Crashout.Presentation
             glass.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             glass.renderQueue = (int)RenderQueue.Transparent;
             shatteredGlass = Surface("Shattered glass", ProceduralTextures.CrazedGlass(), 1.3f, Color.white, 1f, 1.2f);
+            shatteredGlass.SetFloat("_Surface", 1f);
+            shatteredGlass.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            shatteredGlass.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            shatteredGlass.SetFloat("_ZWrite", 0f);
             shatteredGlass.SetFloat("_Cull", 0f);
-            alloy = Lit("Alloy", new Color(0.78f, 0.79f, 0.81f), 1f, 0.78f);
-            chrome = Lit("Chrome", new Color(0.92f, 0.92f, 0.93f), 1f, 0.94f);
-            trim = Lit("Trim", new Color(0.025f, 0.025f, 0.028f), 0f, 0.42f);
+            shatteredGlass.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            shatteredGlass.renderQueue = (int)RenderQueue.Transparent;
+            alloy = Lit("Alloy", new Color(0.82f, 0.84f, 0.88f), 1f, 0.84f);
+            chrome = Lit("Chrome", new Color(0.95f, 0.96f, 0.98f), 1f, 0.97f);
+            accentPaint = Paint(new Color(0.10f, 0.34f, 0.64f), false, "Transit accent blue");
+            goldTrim = Lit("Amber lens", new Color(0.86f, 0.46f, 0.05f), 0.15f, 0.88f);
+            trim = Lit("Trim", new Color(0.025f, 0.025f, 0.03f), 0.12f, 0.48f);
+            matteBlack = Lit("Matte black", new Color(0.042f, 0.045f, 0.052f), 0.22f, 0.38f);
             underbody = Lit("Underbody", new Color(0.02f, 0.02f, 0.022f), 0f, 0.15f);
             brakeDisc = Lit("Brake disc", new Color(0.35f, 0.34f, 0.33f), 0.9f, 0.5f);
             caliper = Paint(new Color(0.75f, 0.05f, 0.04f), false, "Caliper");
@@ -218,15 +230,20 @@ namespace Crashout.Presentation
             neon = Lit("Neon", new Color(0.1f, 0.9f, 1f), 0f, 0.8f);
             Emissive(neon, new Color(0.3f, 3.2f, 4.6f));
 
-            PlayerPaint = Paint(new Color(1f, 0.25f, 0.02f), true, "Crashout orange");
+            PlayerPaint = Paint(new Color(0.76f, 0.06f, 0.08f), true, "Racing crimson metallic");
         }
 
         /// <summary>Clear-coated automotive paint; metallic flake or solid.</summary>
         public Material CreatePaint(Color colour, string name = "Paint")
         {
             float tone = colour.r * 0.3f + colour.g * 0.59f + colour.b * 0.11f;
-            // Silvers, blues and greys read best as metallics; whites and blacks as solids.
-            bool metallic = tone > 0.12f && tone < 0.8f;
+            // Die-cast Spectraflame metallic for vibrant hues; pearl solid for near-white/black.
+            bool metallic = tone > 0.10f && tone < 0.88f;
+            return Paint(colour, metallic, name);
+        }
+
+        public Material CreatePlayerPaint(Color colour, bool metallic, string name)
+        {
             return Paint(colour, metallic, name);
         }
 
@@ -235,8 +252,8 @@ namespace Crashout.Presentation
             Shader automotive = Resources.Load<Shader>("Shaders/AutomotivePaint");
             Material material = new Material(automotive != null ? automotive : complexShader != null ? complexShader : litShader) { name = name };
             material.SetColor("_BaseColor", colour);
-            material.SetFloat("_Metallic", metallic ? 0.6f : 0.05f);
-            material.SetFloat("_Smoothness", metallic ? 0.74f : 0.68f);
+            material.SetFloat("_Metallic", metallic ? 0.72f : 0.08f);
+            material.SetFloat("_Smoothness", metallic ? 0.82f : 0.74f);
             if (material.HasProperty("_ClearCoatMask"))
             {
                 material.SetFloat("_ClearCoatMask", 1f);
@@ -290,7 +307,7 @@ namespace Crashout.Presentation
             RenderSettings.fogDensity = 0.0044f;
             DynamicGI.UpdateEnvironment();
 
-            if (!tabletop) BuildCloudDome(parent);
+            if (!tabletop) SetVirtualBackdrop(parent, true);
             return sun;
         }
 
@@ -321,14 +338,114 @@ namespace Crashout.Presentation
             if (Reflections != null) Reflections.RenderProbe();
         }
 
-        /// <summary>Switches from the AR table to the full virtual world's sky: fog and clouds.</summary>
+        /// <summary>Switches from the AR table to the full virtual world's sky, clouds and distant landscape.</summary>
         public void EnableVirtualSky(Transform parent)
         {
-            RenderSettings.fog = true;
-            if (cloudDome == null) BuildCloudDome(parent);
+            SetVirtualBackdrop(parent, true);
+        }
+
+        /// <summary>
+        /// Shows or hides the full virtual environment around the junction (sky fog, cloud dome,
+        /// distant ground, rolling hills/mountains and surrounding city skyline) without touching
+        /// physics colliders. Used when entering First-Person driver's-seat view from AR tabletop mode.
+        /// </summary>
+        public void SetVirtualBackdrop(Transform parent, bool visible)
+        {
+            RenderSettings.fog = visible;
+            if (visible)
+            {
+                if (cloudDome == null) BuildCloudDome(parent);
+                if (virtualBackdrop == null) BuildVirtualBackdrop(parent);
+            }
+            if (cloudDome != null) cloudDome.SetActive(visible);
+            if (virtualBackdrop != null) virtualBackdrop.SetActive(visible);
         }
 
         private GameObject cloudDome;
+        private GameObject virtualBackdrop;
+
+        private void BuildVirtualBackdrop(Transform parent)
+        {
+            virtualBackdrop = new GameObject("Virtual Backdrop");
+            virtualBackdrop.transform.SetParent(parent, false);
+            Transform root = virtualBackdrop.transform;
+
+            // Expansive ground plane under the junction so there is never an empty void at the horizon.
+            var groundKit = new MeshKit();
+            groundKit.Box(new Vector3(0f, -1.65f, 0f), new Vector3(1400f, 0.5f, 1400f), Quaternion.identity);
+            MeshKit.Spawn(root, "Horizon ground", groundKit.ToMesh("Horizon ground"), displayFloor, false);
+
+            // Distant 360-degree rolling mountain & hill ring (two layered ridges for atmospheric depth).
+            Material nearHills = Lit("Near hills", new Color(0.24f, 0.28f, 0.25f), 0f, 0.14f);
+            Material farMountains = Lit("Far mountains", new Color(0.36f, 0.40f, 0.47f), 0f, 0.10f);
+            BuildLandscapeRing(root, "Near hills ring", 240f, 340f, 22f, 52f, 56, 17, nearHills);
+            BuildLandscapeRing(root, "Far mountains ring", 360f, 520f, 45f, 115f, 64, 31, farMountains);
+
+            // Surrounding distant city skyline silhouette ring (pure visual, cleanly outside the 52m board
+            // and keeping a wide clear corridor along the -Z approach runway).
+            Material skylineDark = Lit("Skyline dark", new Color(0.24f, 0.27f, 0.32f), 0.15f, 0.35f);
+            Material skylineMid = Lit("Skyline mid", new Color(0.35f, 0.37f, 0.41f), 0.10f, 0.28f);
+            Material skylineGlass = Lit("Skyline glass", new Color(0.30f, 0.39f, 0.48f), 0.35f, 0.72f);
+            var darkKit = new MeshKit();
+            var midKit = new MeshKit();
+            var glassKit = new MeshKit();
+            var rng = new System.Random(2026);
+            for (int i = 0; i < 84; i++)
+            {
+                float angle = (i / 84f) * Mathf.PI * 2f + (float)(rng.NextDouble() - 0.5) * 0.06f;
+                float radius = 64f + (float)rng.NextDouble() * 125f;
+                float x = Mathf.Cos(angle) * radius;
+                float z = Mathf.Sin(angle) * radius;
+                // Keep the -Z approach runway corridor completely clear.
+                if (z < -26f && Mathf.Abs(x) < 28f) continue;
+                float w = 9f + (float)rng.NextDouble() * 16f;
+                float d = 9f + (float)rng.NextDouble() * 16f;
+                float h = 14f + (float)rng.NextDouble() * (radius < 110f ? 42f : 68f);
+                float yaw = (float)rng.NextDouble() * 90f;
+                MeshKit targetKit = (i % 3 == 0) ? glassKit : (i % 3 == 1 ? midKit : darkKit);
+                targetKit.Box(new Vector3(x, h * 0.5f - 1.5f, z), new Vector3(w, h, d), Quaternion.Euler(0f, yaw, 0f));
+            }
+            MeshKit.Spawn(root, "Skyline dark", darkKit.ToMesh("Skyline dark"), skylineDark, false);
+            MeshKit.Spawn(root, "Skyline mid", midKit.ToMesh("Skyline mid"), skylineMid, false);
+            MeshKit.Spawn(root, "Skyline glass", glassKit.ToMesh("Skyline glass"), skylineGlass, false);
+        }
+
+        private static void BuildLandscapeRing(Transform parent, string name, float innerR, float outerR,
+            float minHeight, float maxHeight, int segments, int seed, Material material)
+        {
+            var vertices = new Vector3[segments * 3];
+            var triangles = new int[segments * 12];
+            for (int i = 0; i < segments; i++)
+            {
+                float a = (i / (float)segments) * Mathf.PI * 2f;
+                float cos = Mathf.Cos(a);
+                float sin = Mathf.Sin(a);
+                float ridge = 0.5f
+                    + 0.28f * Mathf.Sin(a * 3f + seed * 0.7f)
+                    + 0.16f * Mathf.Sin(a * 7f - seed * 1.3f)
+                    + 0.09f * Mathf.Cos(a * 13f + seed * 0.4f);
+                float peakH = Mathf.Lerp(minHeight, maxHeight, Mathf.Clamp01(ridge));
+                float midR = (innerR + outerR) * 0.5f;
+                vertices[i * 3] = new Vector3(cos * innerR, -2f, sin * innerR);
+                vertices[i * 3 + 1] = new Vector3(cos * midR, peakH, sin * midR);
+                vertices[i * 3 + 2] = new Vector3(cos * outerR, -4f, sin * outerR);
+
+                int next = (i + 1) % segments;
+                int b = i * 12;
+                int i0 = i * 3, i1 = i * 3 + 1, i2 = i * 3 + 2;
+                int n0 = next * 3, n1 = next * 3 + 1, n2 = next * 3 + 2;
+                // Inner slope facing inward toward the junction.
+                triangles[b + 0] = i0; triangles[b + 1] = i1; triangles[b + 2] = n1;
+                triangles[b + 3] = i0; triangles[b + 4] = n1; triangles[b + 5] = n0;
+                // Outer slope.
+                triangles[b + 6] = i1; triangles[b + 7] = i2; triangles[b + 8] = n2;
+                triangles[b + 9] = i1; triangles[b + 10] = n2; triangles[b + 11] = n1;
+            }
+            var mesh = new Mesh { name = name, vertices = vertices, triangles = triangles };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            MeshKit.Spawn(parent, name, mesh, material, false);
+        }
 
         private void BuildCloudDome(Transform parent)
         {

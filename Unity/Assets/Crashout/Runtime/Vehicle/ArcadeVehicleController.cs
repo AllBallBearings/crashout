@@ -14,14 +14,14 @@ namespace Crashout.Vehicle
             new Vector3(0.8f, -0.1f, -1.3f)
         };
 
-        [SerializeField] private float motorForce = 6200f;
-        [SerializeField] private float brakeForce = 7600f;
-        [SerializeField] private float steeringTorque = 2300f;
+        [SerializeField] private float motorForce = 8600f;
+        [SerializeField] private float brakeForce = 8600f;
+        [SerializeField] private float steeringTorque = 2400f;
         [SerializeField] private float lateralGrip = 5.8f;
         [SerializeField] private float suspensionRestLength = 0.47f;
         [SerializeField] private float suspensionStrength = 9200f;
         [SerializeField] private float suspensionDamping = 1100f;
-        [SerializeField] private float maximumSpeed = 31f;
+        [SerializeField] private float maximumSpeed = 41f;
 
         private Rigidbody body;
         private Transform[] frontWheelPivots;
@@ -72,6 +72,14 @@ namespace Crashout.Vehicle
         {
             frontWheelPivots = frontPivots;
             wheelRollPivots = rollPivots;
+        }
+
+        public void ApplyTuning(float mass, float topSpeed, float motor)
+        {
+            if (body == null) body = GetComponent<Rigidbody>();
+            if (body != null) body.mass = mass;
+            maximumSpeed = topSpeed;
+            motorForce = motor;
         }
 
         public void SetPropulsionEnabled(bool enabled)
@@ -160,18 +168,19 @@ namespace Crashout.Vehicle
             bool launchBoost = propulsionEnabled && Time.time < launchBoostUntil;
             IsBoosting = launchBoost || (propulsionEnabled && command.Boost && command.Throttle > 0f && boostMeter > 0.01f);
             if (IsBoosting && !launchBoost) boostMeter = Mathf.Max(0f, boostMeter - Time.fixedDeltaTime / BoostSeconds);
-            float speedLimit = IsBoosting ? maximumSpeed * 1.45f : maximumSpeed;
+            float downhill = Mathf.Clamp01(-transform.forward.y / 0.25f);
+            float speedLimit = (IsBoosting ? maximumSpeed * 1.42f : maximumSpeed) + downhill * 15f;
 
             if (propulsionEnabled)
             {
                 if (command.Throttle > 0f && forwardSpeed < speedLimit && WheelsGrounded > 0)
                 {
-                    body.AddForce(transform.forward * (command.Throttle * motorForce * (IsBoosting ? 2.1f : 1f)), ForceMode.Force);
+                    body.AddForce(transform.forward * (command.Throttle * motorForce * (IsBoosting ? 2.0f : 1f)), ForceMode.Force);
                 }
                 else if (forwardSpeed > speedLimit && WheelsGrounded > 0)
                 {
-                    // Gearing and drag cap the car near its top speed, even running down a steep hill.
-                    body.AddForce(-transform.forward * ((forwardSpeed - speedLimit) * 1.2f * body.mass), ForceMode.Force);
+                    // Gentle aero drag above top speed so downhill runs build real extra momentum.
+                    body.AddForce(-transform.forward * ((forwardSpeed - speedLimit) * 0.22f * body.mass), ForceMode.Force);
                 }
 
                 if (command.Brake > 0f)
@@ -203,7 +212,7 @@ namespace Crashout.Vehicle
                 ApplyStability(command.Steering, forwardSpeed, recovery);
             }
 
-            body.AddForce(-body.linearVelocity * body.mass * (propulsionEnabled ? 0.06f : 0.75f), ForceMode.Force);
+            body.AddForce(-body.linearVelocity * body.mass * (propulsionEnabled ? 0.04f : 0.75f), ForceMode.Force);
             body.AddTorque(-body.angularVelocity * body.mass * (propulsionEnabled ? 0.08f : 0.42f), ForceMode.Force);
             UpdateWheelVisuals(command.Steering, forwardSpeed);
         }

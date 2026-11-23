@@ -11,7 +11,8 @@ namespace Crashout.Presentation
             var groups = new Dictionary<string, Transform> { ["Body"] = root };
             Material Resolve(string role) => role switch
             {
-                "paint" => paint, "framePaint" => paint, "glass" => glass, "trim" => trim, "underbody" => underbody,
+                "paint" => paint, "framePaint" => paint, "matteBlack" => matteBlack, "accent" => accentPaint, "gold" => goldTrim,
+                "glass" => glass, "trim" => trim, "underbody" => underbody,
                 "interior" => interior, "chrome" => chrome, "steel" => steel,
                 "headlight" => headlight, "tail" => tail, "indicator" => indicator, "plate" => plate,
                 _ => underbody

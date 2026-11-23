@@ -1,51 +1,72 @@
 [
   {
     "file": "Player.bytes",
-    "vertices": 32510,
-    "triangles": 57636,
-    "draws": 39,
-    "bytes": 1733283
+    "vertices": 15096,
+    "triangles": 19380,
+    "draws": 38,
+    "bytes": 716906
+  },
+  {
+    "file": "PlayerMuscle.bytes",
+    "vertices": 13944,
+    "triangles": 19200,
+    "draws": 43,
+    "bytes": 678068
+  },
+  {
+    "file": "PlayerBmw.bytes",
+    "vertices": 15080,
+    "triangles": 19220,
+    "draws": 38,
+    "bytes": 714474
+  },
+  {
+    "file": "PlayerSuv.bytes",
+    "vertices": 15436,
+    "triangles": 19880,
+    "draws": 43,
+    "bytes": 733968
   },
   {
     "file": "Sedan.bytes",
-    "vertices": 33112,
-    "triangles": 58400,
-    "draws": 49,
-    "bytes": 1762080
+    "vertices": 14656,
+    "triangles": 19952,
+    "draws": 42,
+    "bytes": 709829
   },
   {
     "file": "Hatch.bytes",
-    "vertices": 31634,
-    "triangles": 55444,
-    "draws": 49,
-    "bytes": 1679312
+    "vertices": 14576,
+    "triangles": 19464,
+    "draws": 42,
+    "bytes": 701414
   },
   {
     "file": "Van.bytes",
-    "vertices": 32330,
-    "triangles": 58060,
-    "draws": 45,
-    "bytes": 1732824
+    "vertices": 10626,
+    "triangles": 14896,
+    "draws": 31,
+    "bytes": 519855
   },
   {
     "file": "Pickup.bytes",
-    "vertices": 32446,
-    "triangles": 57296,
-    "draws": 39,
-    "bytes": 1727154
+    "vertices": 14532,
+    "triangles": 18826,
+    "draws": 44,
+    "bytes": 692425
   },
   {
     "file": "Bus.bytes",
-    "vertices": 23794,
-    "triangles": 38624,
-    "draws": 10,
-    "bytes": 1225226
+    "vertices": 12072,
+    "triangles": 13048,
+    "draws": 25,
+    "bytes": 543715
   },
   {
     "file": "Tanker.bytes",
-    "vertices": 20532,
-    "triangles": 37576,
-    "draws": 12,
-    "bytes": 1108331
+    "vertices": 11036,
+    "triangles": 15300,
+    "draws": 33,
+    "bytes": 537913
   }
 ]

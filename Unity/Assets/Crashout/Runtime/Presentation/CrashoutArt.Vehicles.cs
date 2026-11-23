@@ -135,6 +135,11 @@ namespace Crashout.Presentation
 
         public GameObject CreateCar(string name, Material paint, VehicleClass vehicleClass, bool player, out Transform[] frontPivots, out Transform[] rollPivots)
         {
+            return CreateCar(name, paint, vehicleClass, player, out frontPivots, out rollPivots, null, null);
+        }
+
+        public GameObject CreateCar(string name, Material paint, VehicleClass vehicleClass, bool player, out Transform[] frontPivots, out Transform[] rollPivots, string assetOverride, Vector3[] customWheelPositions)
+        {
             VehicleSpec spec = VehicleSpec.For(vehicleClass);
             GameObject root = new GameObject(name);
             Transform t = root.transform;
@@ -153,7 +158,8 @@ namespace Crashout.Presentation
             float ground, wheelRadius, tyreWidth, track;
             float halfLength;
 
-            VehicleBodyAsset asset = VehicleBodyAsset.Load(player ? "Player" : vehicleClass.ToString());
+            string assetName = !string.IsNullOrEmpty(assetOverride) ? assetOverride : (player ? "Player" : vehicleClass.ToString());
+            VehicleBodyAsset asset = VehicleBodyAsset.Load(assetName);
             if (asset != null)
             {
                 ground = asset.Ground; wheelRadius = asset.WheelRadius; tyreWidth = asset.TyreWidth;
@@ -194,7 +200,7 @@ namespace Crashout.Presentation
             }
 
             // Wheels: a steering pivot (also carries the caliper) and a rolling pivot.
-            Vector3[] wheelPositions = spec.WheelPositions;
+            Vector3[] wheelPositions = customWheelPositions ?? spec.WheelPositions;
             frontPivots = new Transform[2];
             rollPivots = new Transform[wheelPositions.Length];
             bool heavy = vehicleClass == VehicleClass.Bus || vehicleClass == VehicleClass.Tanker;

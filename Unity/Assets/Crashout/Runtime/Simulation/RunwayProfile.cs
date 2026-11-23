@@ -183,14 +183,14 @@ namespace Crashout.Simulation
     public static class ApproachPlanner
     {
         public const float JunctionZ = 0f;
-        private const float Mass = 1320f;
-        private const float MotorForce = 6200f;
-        private const float MaximumSpeed = 31f;
-        private const float BoostForceScale = 2.1f;
-        private const float BoostSpeedScale = 1.45f;
-        private const float CruiseSpeed = 20f;
-        private const float LinearDrag = 0.06f + 0.02f;
-        private const float OverspeedDrag = 1.2f;
+        private const float Mass = 1420f;
+        private const float MotorForce = 8600f;
+        private const float MaximumSpeed = 41f;
+        private const float BoostForceScale = 2.0f;
+        private const float BoostSpeedScale = 1.42f;
+        private const float CruiseSpeed = 42f;
+        private const float LinearDrag = 0.04f + 0.02f;
+        private const float OverspeedDrag = 0.22f;
         private const float Step = 1f / 30f;
         private const int MaximumSteps = 600;
 
@@ -206,14 +206,14 @@ namespace Crashout.Simulation
             {
                 bool boosting = boostSeconds > 0f;
                 if (boosting) boostSeconds -= Step;
-                float limit = boosting ? MaximumSpeed * BoostSpeedScale : MaximumSpeed;
+                float grade = runway != null ? runway.GradeAt(z) : 0f;
+                float slope = 1f / Mathf.Sqrt(1f + grade * grade);
+                float downhill = Mathf.Clamp01(-grade / 0.25f);
+                float limit = (boosting ? MaximumSpeed * BoostSpeedScale : MaximumSpeed) + downhill * 15f;
                 float acceleration = 0f;
                 bool throttle = throttleHeld || boosting || speed < CruiseSpeed;
                 if (throttle && speed < limit) acceleration += MotorForce * (boosting ? BoostForceScale : 1f) / Mass;
                 if (speed > limit) acceleration -= OverspeedDrag * (speed - limit);
-
-                float grade = runway != null ? runway.GradeAt(z) : 0f;
-                float slope = 1f / Mathf.Sqrt(1f + grade * grade);
                 acceleration -= 9.81f * grade * slope;
                 acceleration -= LinearDrag * speed;
 
